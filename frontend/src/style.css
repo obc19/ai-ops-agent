@@ -133,3 +133,30 @@ pre.markdown {
 .error { color: var(--p0); background: #fdecea; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
+
+/* 模型状态横幅：未接入=红，已接入=浅绿 */
+.banner { border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; }
+.banner p { margin: 8px 0 0; }
+.banner-warn { background: #fff7ed; border: 1px solid #fdba74; color: #7c2d12; }
+.banner-warn strong { color: #9a3412; }
+.banner-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; padding: 11px 16px; }
+.banner-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.banner-head button { flex-shrink: 0; }
+.banner-head button.ghost { background: #fff; border-color: #fdba74; color: #9a3412; }
+.banner-code {
+  background: #0f1524; color: #dbe4f5; padding: 10px 12px; border-radius: 8px;
+  font-size: 12px; line-height: 1.65; overflow-x: auto; margin: 10px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.banner-tip { font-size: 12px; color: #9a3412; }
+.banner-tip code { background: #ffedd5; padding: 1px 5px; border-radius: 4px; }
+.banner .dim { color: var(--muted); font-size: 12px; }
+.test-ok { margin-top: 6px; color: #15803d; font-size: 12.5px; }
+.test-fail {
+  margin-top: 6px; color: #b42318; font-size: 12.5px; word-break: break-all;
+  background: #fef3f2; border-radius: 6px; padding: 6px 8px;
+}
+.sidebar .llm-ok { color: #4ade80; }
+.sidebar .llm-off { color: #f87171; }
+button:disabled { opacity: 0.6; cursor: default; }
+

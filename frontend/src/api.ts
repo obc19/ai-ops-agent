@@ -34,7 +34,9 @@ export const api = {
     request<any[]>('/api/v1/knowledge?' + new URLSearchParams(params as any).toString()),
   knowledgeStats: () => request<any>('/api/v1/knowledge/stats'),
   audit: (params: Record<string, any> = {}) =>
-    request<any>('/api/v1/audit?' + new URLSearchParams(params as any).toString())
+    request<any>('/api/v1/audit?' + new URLSearchParams(params as any).toString()),
+  llmStatus: () => request<any>('/api/v1/system/llm'),
+  llmTest: () => request<any>('/api/v1/system/llm-test', { method: 'POST' })
 }
 
 export function fmtTime(value?: string): string {
