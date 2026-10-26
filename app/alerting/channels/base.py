@@ -41,16 +41,20 @@ class BaseChannel(ABC):
             return f"{self.settings.sink_base.rstrip('/')}/{self.name}"
         return ""
 
+    def build_request(self, alert: Alert) -> tuple[str, dict]:
+        """返回 (最终 URL, 请求体)。需要加签的渠道覆盖此方法。"""
+        return self.endpoint, self.build_payload(alert)
+
     async def send(self, alert: Alert) -> NotificationResult:
         started = perf_counter()
-        url = self.endpoint
+        url, payload = self.build_request(alert)
         if not url:
             return NotificationResult(
                 channel=self.name, ok=False, detail="未配置渠道地址，已跳过"
             )
         try:
             async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
-                resp = await client.post(url, json=self.build_payload(alert))
+                resp = await client.post(url, json=payload)
             ok = resp.status_code < 400
             detail = f"HTTP {resp.status_code}" if ok else f"HTTP {resp.status_code}: {resp.text[:120]}"
         except httpx.HTTPError as exc:

@@ -85,7 +85,9 @@ class Settings(BaseSettings):
     # ---- 告警渠道 ----
     alert_channels: str = "feishu,dingtalk,email,webhook"
     feishu_webhook: str = ""
+    feishu_secret: str = ""      # 飞书机器人「加签」密钥（可选）
     dingtalk_webhook: str = ""
+    dingtalk_secret: str = ""    # 钉钉机器人「加签」密钥（可选）
     alert_webhook_url: str = ""
     smtp_host: str = ""
     smtp_port: int = 465
