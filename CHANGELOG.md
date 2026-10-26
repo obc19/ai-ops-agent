@@ -2,6 +2,32 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-10-26
+
+在 v0.1 骨架之上补齐运营闭环所需的功能，未改动项目结构。
+
+### 新增
+
+- **告警状态机**：`triggered → notified → confirmed → resolved`，非法流转返回 409，全程写入 `status_history`；新增 `POST /alerts/{id}/reopen` 支持复发重开，通知成功后自动推进为「已通知」
+- **三角色静态鉴权**：`VIEWER_TOKEN` / `OPERATOR_TOKEN` / `AUTH_TOKEN` 对应 viewer / operator / admin；读接口需 viewer、写接口需 operator，三者都不配置时保持本地体验模式全放行
+- **多集群接入**：`CLUSTERS_CONFIG`（YAML 文件或内联）描述多个集群，适配器按集群实例化，事件与告警天然带 `cluster`/`namespace`；新增 `GET /clusters/sources`，`ops-cli clusters`
+- **Alertmanager 接入**：`POST /ingest/alertmanager` 直接消费 Alertmanager v4 Webhook，映射为统一异常事件后复用诊断、告警与知识库；`ops-cli ingest` 支持命令行或 JSON 文件灌入
+- **脱敏二次校验与自告警**：脱敏后再扫描残留敏感串，命中即拦截；脱敏引擎异常或残留命中都会写审计并生成工具自身 P1 告警
+- **飞书 / 钉钉加签**：`FEISHU_SECRET` / `DINGTALK_SECRET` 配置后自动按官方算法签名，mock 接收端不加签
+- **总览增强**：`/overview` 增加集群列表、数据源归属与鉴权开关状态
+
+### 变更
+
+- 采集适配器统一以「集群」为上下文，修正 Prometheus/ES 真实查询里 `cluster` 误写成应用名的问题
+- CLI 新增 `clusters`、`ingest`、`alert-reopen`，`alerts --status` 支持 `notified`
+- 控制台告警状态显示中文标签，新增「已通知」筛选项；令牌输入提示区分角色
+
+### 已知限制
+
+- 链路与 K8s 模块默认关闭，需显式开启
+- 未提供 Helm Chart、多租户与细粒度 RBAC（当前为静态三角色）
+- Docker 相关验收项需本机安装 Docker 后重跑
+
 ## [0.1.0] - 2026-10-26
 
 首个骨架版本：全模块端到端可跑通（mock 数据源），Agent 支持规则引擎与 LLM 双路径。
