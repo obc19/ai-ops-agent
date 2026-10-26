@@ -1,13 +1,19 @@
-"""告警策略：分级、聚合去重、P0 不抑制、冷却窗口。"""
+"""告警策略：分级、聚合去重、P0 升级、通知冷却。
+
+规则说明（与确认书 D13 的实现口径）：
+- 同一 group_key（集群/命名空间/对象/指标）在聚合窗口内已存在未关闭告警时合并计数；
+- P0 不参与「静默抑制」：要么把已有告警升级为 P0 并立即通知，要么在冷却期外再次通知；
+- 冷却期内仍聚合计数，避免轮询周期（默认 10s）造成的告警风暴。
+"""
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.config.settings import Settings, get_settings
 from app.models.alert import Alert
 from app.models.diagnosis import DiagnosisReport
-from app.models.enums import Severity
+from app.models.enums import AlertStatus, Severity
 from app.models.events import AnomalyEvent
 from app.storage import get_store
 from app.utils.clock import utc_now
@@ -17,8 +23,6 @@ logger = get_logger(__name__)
 
 
 class AlertPolicy:
-    """把「异常 + 诊断报告」转成告警，并决定是否复用已有告警。"""
-
     def __init__(self, settings: Settings | None = None, store=None) -> None:
         self.settings = settings or get_settings()
         self.db = store or get_store()
@@ -26,25 +30,42 @@ class AlertPolicy:
     def register(
         self, anomaly: AnomalyEvent, report: DiagnosisReport | None
     ) -> tuple[Alert, bool]:
-        """返回 (告警, 是否新建)。P0 永远新建，其余在聚合窗口内合并。"""
+        """返回 (告警, 是否需要通知)。"""
         group_key = anomaly.group_key()
         window_start = utc_now() - timedelta(seconds=self.settings.alert_group_window)
         existing = self.db.find_alert_in_group(group_key, window_start)
 
-        if existing is not None and anomaly.severity.suppressible:
-            existing.mark_seen()
-            if report is not None:
-                existing.root_cause = report.root_cause or existing.root_cause
-                existing.suggestion = report.suggestion or existing.suggestion
-                existing.diagnosis_id = report.id or existing.diagnosis_id
-                existing.degraded = report.status.value != "ok"
-            existing.summary = anomaly.summary or existing.summary
-            self.db.save_alert(existing)
-            logger.info(
-                "告警聚合：%s 已存在（第 %d 次），不重复通知", group_key, existing.count
-            )
-            return existing, False
+        if existing is None:
+            return self._create(anomaly, report, group_key), True
 
+        self._apply_report(existing, anomaly, report)
+
+        # 升级：新异常级别更高 → 提级并立即通知
+        if anomaly.severity.rank < existing.severity.rank:
+            logger.info(
+                "告警升级：%s %s → %s", group_key, existing.severity.value, anomaly.severity.value
+            )
+            existing.severity = anomaly.severity
+            existing.mark_seen()
+            self.db.save_alert(existing)
+            return existing, True
+
+        # P0 冷却期外再次通知；其余级别一律聚合
+        if anomaly.severity is Severity.P0 and not self._in_cooldown(existing):
+            existing.mark_seen()
+            self.db.save_alert(existing)
+            logger.info("P0 告警 %s 重新通知（已过冷却期）", existing.id)
+            return existing, True
+
+        existing.mark_seen()
+        self.db.save_alert(existing)
+        logger.info("告警聚合：%s 已存在（第 %d 次），不重复通知", group_key, existing.count)
+        return existing, False
+
+    # ---------- 内部 ----------
+    def _create(
+        self, anomaly: AnomalyEvent, report: DiagnosisReport | None, group_key: str
+    ) -> Alert:
         alert = Alert(
             severity=anomaly.severity,
             cluster=anomaly.cluster,
@@ -62,6 +83,30 @@ class AlertPolicy:
             channels=[c.strip() for c in self.settings.alert_channels.split(",") if c.strip()],
         )
         self.db.save_alert(alert)
-        reason = "P0 不参与抑制" if anomaly.severity is Severity.P0 else "新告警"
-        logger.info("生成告警 %s（%s）：%s", alert.id, reason, alert.summary)
-        return alert, True
+        logger.info("生成告警 %s（%s）：%s", alert.id, alert.severity.value, alert.summary)
+        return alert
+
+    @staticmethod
+    def _apply_report(
+        alert: Alert, anomaly: AnomalyEvent, report: DiagnosisReport | None
+    ) -> None:
+        if report is not None:
+            alert.root_cause = report.root_cause or alert.root_cause
+            alert.suggestion = report.suggestion or alert.suggestion
+            alert.diagnosis_id = report.id or alert.diagnosis_id
+            alert.degraded = report.status.value != "ok"
+        alert.summary = anomaly.summary or alert.summary
+
+    def _in_cooldown(self, alert: Alert) -> bool:
+        if self.settings.alert_cooldown <= 0:
+            return False
+        last: datetime = alert.created_at
+        for result in alert.notifications:
+            if result.sent_at and result.sent_at > last:
+                last = result.sent_at
+        elapsed = (utc_now() - last).total_seconds()
+        return elapsed < self.settings.alert_cooldown
+
+    def summarize(self, alert: Alert) -> str:
+        state = "已关闭" if alert.status is AlertStatus.RESOLVED else "处理中"
+        return f"[{alert.severity}] {alert.target} {alert.metric} ×{alert.count}（{state}）"

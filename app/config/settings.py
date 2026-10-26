@@ -85,8 +85,8 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     alert_email_from: str = ""
     alert_email_to: str = ""
-    # mock 模式下把通知打到内置接收端，用于验收断言
-    mock_sink_base: str = "http://127.0.0.1:8080/_mock/sink"
+    # mock 模式下把通知打到内置接收端（默认跟随运行端口），用于验收断言
+    mock_sink_base: str = ""
 
     # ---- Agent 超时预算（保证端到端 ≤60s）----
     agent_timeout: float = Field(default=12.0, gt=0)
@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     @property
     def embedding_enabled(self) -> bool:
         return bool(self.embedding_base_url and self.embedding_model)
+
+    @property
+    def sink_base(self) -> str:
+        return self.mock_sink_base or f"http://127.0.0.1:{self.port}/_mock/sink"
 
     @property
     def desensitize_rules_path(self) -> Path:

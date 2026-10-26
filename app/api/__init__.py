@@ -1,0 +1,15 @@
+"""API 路由汇总。"""
+
+from fastapi import APIRouter
+
+from app.api.routes import alerts, audit, clusters, diagnostics, knowledge, overview
+
+api_router = APIRouter()
+api_router.include_router(overview.router)
+api_router.include_router(clusters.router)
+api_router.include_router(diagnostics.router)
+api_router.include_router(alerts.router)
+api_router.include_router(knowledge.router)
+api_router.include_router(audit.router)
+
+__all__ = ["api_router"]

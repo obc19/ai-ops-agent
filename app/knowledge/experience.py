@@ -56,7 +56,7 @@ class KnowledgeService:
     # ---------- 草稿 ----------
     def create_draft(self, report: DiagnosisReport, tags: list[str] | None = None) -> Experience:
         draft = ExperienceDraft(
-            title=f"{report.target} {report.summary[:40]}".strip(),
+            title=(report.summary or f"{report.target} {report.root_cause}")[:48],
             symptom=report.summary,
             root_cause=report.root_cause,
             resolution=list(report.suggestion),

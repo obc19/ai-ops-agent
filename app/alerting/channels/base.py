@@ -38,7 +38,7 @@ class BaseChannel(ABC):
         if url:
             return url
         if self.settings.mock_mode:
-            return f"{self.settings.mock_sink_base.rstrip('/')}/{self.name}"
+            return f"{self.settings.sink_base.rstrip('/')}/{self.name}"
         return ""
 
     async def send(self, alert: Alert) -> NotificationResult:

@@ -55,7 +55,7 @@ class EmailChannel(BaseChannel):
         )
 
     async def _post_sink(self, payload: dict) -> tuple[bool, str]:
-        url = f"{self.settings.mock_sink_base.rstrip('/')}/{self.name}"
+        url = f"{self.settings.sink_base.rstrip('/')}/{self.name}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
                 resp = await client.post(url, json=payload)
