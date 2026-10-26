@@ -112,6 +112,8 @@ class ChromaVectorStore:  # pragma: no cover - 需要安装 chromadb
 
 def build_vector_store() -> VectorStore:
     cfg = get_settings()
+    if cfg.knowledge_backend == "faiss":
+        logger.warning("FAISS 后端本轮未打包（镜像体积考虑），已回退到内嵌实现")
     if cfg.knowledge_backend == "chroma":
         try:
             return ChromaVectorStore()
