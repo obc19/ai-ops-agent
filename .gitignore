@@ -36,3 +36,6 @@ frontend/.vite/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# WorkBuddy 本地工作区数据
+.workbuddy/

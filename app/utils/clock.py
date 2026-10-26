@@ -7,7 +7,10 @@ from zoneinfo import ZoneInfo
 
 from app.config.constants import DISPLAY_TZ
 
-LOCAL_TZ = ZoneInfo(DISPLAY_TZ)
+try:  # 容器精简镜像与 Windows 都可能缺 tzdata，降级为固定 +08:00
+    LOCAL_TZ: timezone | ZoneInfo = ZoneInfo(DISPLAY_TZ)
+except Exception:  # noqa: BLE001 - 缺少时区数据库属预期情况
+    LOCAL_TZ = timezone(timedelta(hours=8), DISPLAY_TZ)
 
 
 def utc_now() -> datetime:
