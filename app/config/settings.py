@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     knowledge_backend: Literal["simple", "chroma", "faiss"] = "simple"
     knowledge_dedup_threshold: float = Field(default=0.92, ge=0.0, le=1.0)
     knowledge_top_k: int = Field(default=3, ge=1)
+    # 检索最低相似度：哈希兜底向量分值偏低，可接真实 embedding 后调高
+    rag_min_score: float = Field(default=0.15, ge=0.0, le=1.0)
 
     # ---- 检测与告警 ----
     detect_interval: int = Field(default=10, ge=1)
