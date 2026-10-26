@@ -73,6 +73,21 @@ class Settings(BaseSettings):
     alert_cooldown: int = Field(default=300, ge=0)
     auth_token: str = ""
 
+    # ---- 告警渠道 ----
+    alert_channels: str = "feishu,dingtalk,email,webhook"
+    feishu_webhook: str = ""
+    dingtalk_webhook: str = ""
+    alert_webhook_url: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    alert_email_from: str = ""
+    alert_email_to: str = ""
+    # mock 模式下把通知打到内置接收端，用于验收断言
+    mock_sink_base: str = "http://127.0.0.1:8080/_mock/sink"
+
     # ---- Agent 超时预算（保证端到端 ≤60s）----
     agent_timeout: float = Field(default=12.0, gt=0)
     diagnosis_budget: float = Field(default=45.0, gt=0)
