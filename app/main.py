@@ -49,6 +49,24 @@ async def lifespan(app: FastAPI):
     )
     await get_scheduler().start()
     try:
+        if settings.llm_enabled:
+            logger.info(
+                "模型已接入：%s @ %s（密钥 %s）",
+                settings.llm_model,
+                settings.llm_provider,
+                settings.llm_key_masked,
+            )
+        else:
+            logger.warning(
+                "=" * 72
+                + "\n未检测到 LLM_API_KEY：诊断链路将退化为规则模式，"
+                "大模型不参与分析。\n"
+                "AIOps 的价值来自模型对指标的推理，请先配置密钥后重启：\n"
+                "  .env 或容器环境变量：LLM_API_KEY=sk-xxx\n"
+                "  可选覆盖：LLM_BASE_URL / LLM_MODEL（默认 DeepSeek）\n"
+                "配置后打开控制台，顶部横幅点「测试连接」即可验证是否真的连通。\n"
+                + "=" * 72
+            )
         yield
     finally:
         await get_scheduler().stop()
@@ -115,6 +133,12 @@ async def healthz() -> JSONResponse:
             "scheduler_rounds": scheduler.rounds,
             "uptime_seconds": round((utc_now() - STARTED_AT).total_seconds(), 1),
             "started_at": fmt_local(STARTED_AT),
+            "llm": {
+                "configured": settings.llm_enabled,
+                "model": settings.llm_model,
+                "provider": settings.llm_provider,
+                "mode": "llm" if settings.llm_enabled else "rules",
+            },
         }
     )
 

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # ---- 运行模式 ----
     app_name: str = "ai-ops-agent"
-    version: str = "0.2.0"
+    version: str = "0.3.0"
     mock_mode: bool = True
     host: str = "0.0.0.0"
     port: int = 8080
@@ -120,6 +120,23 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return bool(self.llm_api_key and self.llm_base_url)
+
+    @property
+    def llm_provider(self) -> str:
+        """只取 base_url 的 host，用于日志与页面展示，不外泄完整地址。"""
+        from urllib.parse import urlparse
+
+        return urlparse(self.llm_base_url).netloc or self.llm_base_url
+
+    @property
+    def llm_key_masked(self) -> str:
+        """密钥打码：仅保留前 4 位与后 4 位，够用户确认「填的是哪把」。"""
+        key = self.llm_api_key
+        if not key:
+            return ""
+        if len(key) <= 10:
+            return "*" * len(key)
+        return f"{key[:4]}…{key[-4:]}"
 
     @property
     def embedding_enabled(self) -> bool:
