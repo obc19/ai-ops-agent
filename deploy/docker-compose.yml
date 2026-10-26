@@ -16,6 +16,21 @@ services:
       DETECT_INTERVAL: "${DETECT_INTERVAL:-10}"
       RETENTION_DAYS: "${RETENTION_DAYS:-30}"
       AUTH_TOKEN: "${AUTH_TOKEN:-}"
+      OPERATOR_TOKEN: "${OPERATOR_TOKEN:-}"
+      VIEWER_TOKEN: "${VIEWER_TOKEN:-}"
+      CLUSTERS_CONFIG: "${CLUSTERS_CONFIG:-}"
+      DEFAULT_CLUSTER: "${DEFAULT_CLUSTER:-prod-cluster}"
+      DEFAULT_NAMESPACE: "${DEFAULT_NAMESPACE:-prod}"
+      ALERT_CHANNELS: "${ALERT_CHANNELS:-feishu,dingtalk,email,webhook}"
+      FEISHU_WEBHOOK: "${FEISHU_WEBHOOK:-}"
+      DINGTALK_WEBHOOK: "${DINGTALK_WEBHOOK:-}"
+      ALERT_WEBHOOK_URL: "${ALERT_WEBHOOK_URL:-}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-465}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      ALERT_EMAIL_FROM: "${ALERT_EMAIL_FROM:-}"
+      ALERT_EMAIL_TO: "${ALERT_EMAIL_TO:-}"
       PROMETHEUS_URL: "${PROMETHEUS_URL:-}"
       ELASTICSEARCH_URL: "${ELASTICSEARCH_URL:-}"
       ELASTICSEARCH_INDEX: "${ELASTICSEARCH_INDEX:-app-logs-*}"
@@ -32,6 +47,8 @@ services:
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
     volumes:
       - ./data:/data
+      # 多集群配置：把 deploy/clusters.example.yaml 复制为 deploy/clusters.yaml 后取消注释
+      # - ./clusters.yaml:/app/deploy/clusters.yaml:ro
     healthcheck:
       test:
         - CMD

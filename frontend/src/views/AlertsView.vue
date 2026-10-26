@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { api, fmtTime } from '../api'
+import { api, fmtTime, statusLabel } from '../api'
 
 const items = ref<any[]>([])
 const total = ref(0)
@@ -43,7 +43,8 @@ onMounted(load)
       </select>
       <select v-model="status" @change="load">
         <option value="">全部状态</option>
-        <option value="triggered">待处理</option>
+        <option value="triggered">已触发</option>
+        <option value="notified">已通知</option>
         <option value="confirmed">处置中</option>
         <option value="resolved">已关闭</option>
       </select>
@@ -62,7 +63,7 @@ onMounted(load)
           <td>{{ a.cluster }}/{{ a.namespace }}/{{ a.target }}</td>
           <td class="mono">{{ a.metric }}</td>
           <td>{{ a.summary }}</td>
-          <td><span class="tag gray">{{ a.status }}</span></td>
+          <td><span class="tag gray">{{ statusLabel(a.status) }}</span></td>
           <td>×{{ a.count }}</td>
           <td class="muted">{{ fmtTime(a.last_seen_at) }}</td>
         </tr>

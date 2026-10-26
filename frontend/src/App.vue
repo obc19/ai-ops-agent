@@ -48,7 +48,7 @@ onMounted(loadHealth)
       <div class="header">
         <h1>{{ $route.meta.title }}</h1>
         <div class="actions">
-          <input v-model="tokenInput" placeholder="AUTH_TOKEN（未启用可留空）" style="width: 220px" />
+          <input v-model="tokenInput" placeholder="访问令牌（viewer / operator / admin，未启用可留空）" style="width: 220px" />
           <button @click="saveToken">保存</button>
         </div>
       </div>

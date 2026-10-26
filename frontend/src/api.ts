@@ -45,6 +45,17 @@ export function fmtTime(value?: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  triggered: '已触发',
+  notified: '已通知',
+  confirmed: '处置中',
+  resolved: '已关闭'
+}
+
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status] || status
+}
+
 export function severityClass(severity: string): string {
   return severity === 'P0' ? 'tag p0' : severity === 'P1' ? 'tag p1' : 'tag p2'
 }
