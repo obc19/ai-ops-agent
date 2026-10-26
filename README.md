@@ -4,6 +4,8 @@
 
 > 当前版本为 **v0.1.0 骨架版**：目录、接口、数据模型、配置体系、mock 数据源、容器化、控制台、测试与验收脚本全部到位，端到端可跑通；Agent 推理支持「规则引擎」与「LLM」两条路径，未配置 LLM 时自动走规则结论。
 
+- 仓库地址：<https://github.com/obc19/ai-ops-agent>　｜　协议：MIT
+
 ---
 
 ## 特性
@@ -232,7 +234,7 @@ tests/                      # pytest
 - **向量库默认内嵌轻量实现**：经验量上万时请切 `KNOWLEDGE_BACKEND=chroma`
 - **mock 模式的通知**发往内置接收端 `/_mock/sink`，便于验收；接真实渠道只需配置对应 Webhook / SMTP
 - **飞书/钉钉的正式接口签名**（加签校验）未实现，当前为通用 Webhook 形态
-- **授权协议**：仓库现为 MIT；需求文档建议 Apache-2.0，如需切换请告知
+- **授权协议**：MIT。仓库地址：https://github.com/obc19/ai-ops-agent
 
 ## 路线图
 
