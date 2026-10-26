@@ -25,12 +25,19 @@ a { color: var(--brand); text-decoration: none; }
 
 .layout { display: flex; min-height: 100vh; }
 
+/* 侧边栏固定：页面滚动时导航不跟随，内容区独立滚动 */
 .sidebar {
   width: 208px;
   background: #101728;
   color: #cfd8ea;
   padding: 20px 14px;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .sidebar .brand { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 4px; }
 .sidebar .version { font-size: 11px; color: #6b7a99; margin-bottom: 22px; }
