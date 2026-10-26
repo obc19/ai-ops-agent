@@ -1,0 +1,57 @@
+# 脱敏规则：命中即视为敏感，外发前必须处理
+# action: mask（保留首尾打码）| replace（整体替换）| truncate（截断）
+version: 1
+
+rules:
+  - id: secret
+    name: Token / 密钥 / 口令
+    pattern: '(?i)\b(authorization|bearer|token|api[_-]?key|secret|password|passwd)\s*[:=]\s*([A-Za-z0-9._\-]{6,})'
+    action: replace
+    replacement: '\1=***'
+    severity: high
+
+  - id: ipv4
+    name: IPv4 地址
+    pattern: '(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])'
+    action: mask
+    keep_head: 2
+    keep_tail: 2
+    severity: high
+
+  - id: ipv6
+    name: IPv6 地址
+    pattern: '(?<![:0-9a-fA-F])(?:[0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4}(?![:0-9a-fA-F])'
+    action: replace
+    replacement: '<IPV6>'
+    severity: high
+
+  - id: email
+    name: 邮箱账号
+    pattern: '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}'
+    action: mask
+    keep_head: 2
+    keep_tail: 0
+    severity: high
+
+  - id: phone
+    name: 手机号
+    pattern: '(?<!\d)1[3-9]\d{9}(?!\d)'
+    action: mask
+    keep_head: 3
+    keep_tail: 2
+    severity: high
+
+  - id: idcard
+    name: 身份证号
+    pattern: '(?<!\d)\d{17}[\dXx](?!\d)'
+    action: mask
+    keep_head: 3
+    keep_tail: 2
+    severity: high
+
+  - id: hostname
+    name: 内部主机名
+    pattern: '\b[a-z0-9][a-z0-9\-]{1,61}\.(?:internal|local|svc|cluster\.local|prod|corp)\b'
+    action: replace
+    replacement: '<HOST>'
+    severity: medium
