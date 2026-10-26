@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, fmtTime } from '../api'
+import { renderMarkdown } from '../markdown'
 
 const items = ref<any[]>([])
 const detail = ref('')
 const selected = ref<any>(null)
 const loading = ref(false)
+const showRaw = ref(false)
+const detailHtml = computed(() => renderMarkdown(detail.value))
 
 async function load() {
   loading.value = true
@@ -61,8 +64,10 @@ onMounted(load)
       <span v-if="selected.used_llm" class="tag ok">LLM 参与</span>
       <span v-else class="tag gray">规则引擎</span>
       <span v-if="selected.rag_hits.length" class="tag p2">命中 {{ selected.rag_hits.length }} 条经验</span>
+      <button @click="showRaw = !showRaw">{{ showRaw ? '预览' : '源码' }}</button>
       <button @click="selected = null; detail = ''">关闭</button>
     </div>
-    <pre class="markdown">{{ detail }}</pre>
+    <pre v-if="showRaw" class="markdown">{{ detail }}</pre>
+    <div v-else class="md-body" v-html="detailHtml"></div>
   </div>
 </template>

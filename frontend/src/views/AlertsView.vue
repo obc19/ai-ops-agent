@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, fmtTime, statusLabel } from '../api'
+import { renderMarkdown } from '../markdown'
 
 const items = ref<any[]>([])
 const total = ref(0)
@@ -9,6 +10,8 @@ const status = ref('')
 const detail = ref('')
 const selected = ref<any>(null)
 const loading = ref(false)
+const showRaw = ref(false)
+const detailHtml = computed(() => renderMarkdown(detail.value))
 
 async function load() {
   loading.value = true
@@ -76,6 +79,7 @@ onMounted(load)
     <div class="row" style="margin-bottom: 10px">
       <h2 style="margin: 0">告警 {{ selected.id }}</h2>
       <div class="spacer"></div>
+      <button @click="showRaw = !showRaw">{{ showRaw ? '预览' : '源码' }}</button>
       <button @click="selected = null; detail = ''">关闭</button>
     </div>
     <div class="row" style="margin-bottom: 10px">
@@ -83,6 +87,7 @@ onMounted(load)
       <span class="tag gray">诊断 {{ selected.diagnosis_id || '-' }}</span>
       <span v-if="selected.degraded" class="tag p1">诊断降级</span>
     </div>
-    <pre class="markdown">{{ detail }}</pre>
+    <pre v-if="showRaw" class="markdown">{{ detail }}</pre>
+    <div v-else class="md-body" v-html="detailHtml"></div>
   </div>
 </template>

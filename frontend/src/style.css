@@ -86,6 +86,42 @@ pre.markdown {
   background: #0f1524; color: #dbe4f5; padding: 16px; border-radius: 10px;
   overflow: auto; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap;
 }
+
+/* 渲染后的报告排版（诊断 / 告警详情） */
+.md-body { font-size: 13.5px; line-height: 1.75; color: var(--text); }
+.md-body > :first-child { margin-top: 0; }
+.md-body > :last-child { margin-bottom: 0; }
+.md-body h1 {
+  font-size: 18px; font-weight: 600; margin: 4px 0 14px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.md-body h2 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
+.md-body h3 { font-size: 13.5px; font-weight: 600; margin: 16px 0 6px; color: var(--muted); }
+.md-body h4 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; color: var(--muted); }
+.md-body p { margin: 8px 0; }
+.md-body ul, .md-body ol { margin: 8px 0; padding-left: 22px; }
+.md-body li { margin: 3px 0; }
+.md-body strong { font-weight: 600; }
+.md-body em { color: var(--muted); font-style: normal; }
+.md-body code {
+  background: #eef1f6; color: #334155; padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
+}
+.md-body pre { background: #0f1524; padding: 12px 14px; border-radius: 8px; overflow: auto; }
+.md-body pre code { background: none; color: #dbe4f5; padding: 0; font-size: 12px; }
+.md-table { overflow-x: auto; margin: 10px 0; }
+.md-body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.md-body th, .md-body td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top;
+}
+.md-body th { background: #f6f8fb; font-weight: 600; white-space: nowrap; }
+.md-body tbody tr:hover { background: #fafbfe; }
+.md-body blockquote {
+  margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--border);
+  color: var(--muted); background: #fafbfe;
+}
+.md-body hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+.md-body a { color: var(--brand); }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 .error { color: var(--p0); background: #fdecea; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

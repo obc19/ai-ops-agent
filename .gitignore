@@ -37,5 +37,8 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 
+# 本地临时产物（截图、预览页、探针输出）
+.tmp/
+
 # WorkBuddy 本地工作区数据
 .workbuddy/
