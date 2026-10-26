@@ -93,10 +93,15 @@ kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 前端（可选，构建后由 FastAPI 托管）
-cd frontend && npm install && npm run build && cd ..
-
 MOCK_MODE=true PORT=8080 python -m app.main
+# PowerShell 不支持前置赋值，改用：
+# $env:MOCK_MODE="true"; $env:PORT="8080"; python -m app.main
+
+# 前端日常开发：dev server 带热更新，/api 已代理到 8080
+cd frontend && npm install && npm run dev        # http://127.0.0.1:5173
+
+# 只有要验证"单镜像效果"时才构建（产物由 FastAPI 在 / 托管）
+npm run build
 ```
 
 ### 体验一条完整故障闭环
