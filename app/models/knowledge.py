@@ -15,6 +15,7 @@ class ExperienceDraft(BaseModel):
     """诊断完成后自动生成的草稿，等待人工确认。"""
 
     title: str
+    target: str = ""
     symptom: str
     root_cause: str
     resolution: list[str] = Field(default_factory=list)
@@ -28,6 +29,7 @@ class ExperienceDraft(BaseModel):
 class Experience(BaseModel):
     id: str = Field(default_factory=lambda: new_id("exp"))
     title: str
+    target: str = ""
     symptom: str = ""
     root_cause: str = ""
     resolution: list[str] = Field(default_factory=list)

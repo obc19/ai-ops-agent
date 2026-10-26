@@ -57,6 +57,7 @@ class KnowledgeService:
     def create_draft(self, report: DiagnosisReport, tags: list[str] | None = None) -> Experience:
         draft = ExperienceDraft(
             title=(report.summary or f"{report.target} {report.root_cause}")[:48],
+            target=report.target,
             symptom=report.summary,
             root_cause=report.root_cause,
             resolution=list(report.suggestion),
@@ -98,7 +99,7 @@ class KnowledgeService:
 
         # 重复检测（仅比对已确认经验）
         text = exp.searchable_text()
-        duplicate = await self._find_duplicate(text, exclude_id=exp.id)
+        duplicate = await self._find_duplicate(exp)
         if duplicate and not force:
             existing, score = duplicate
             raise DuplicateExperience(existing, score)
@@ -154,23 +155,24 @@ class KnowledgeService:
         return exp
 
     # ---------- 查询 ----------
-    async def _find_duplicate(
-        self, text: str, exclude_id: str | None = None
-    ) -> tuple[Experience, float] | None:
+    async def _find_duplicate(self, exp: Experience) -> tuple[Experience, float] | None:
+        """同一对象的相近经验才算重复；跨对象的相似故障应各自留存。"""
         if self.vectors.count() == 0:
             return None
         try:
-            vectors, _ = await embed_texts([text])
+            vectors, _ = await embed_texts([exp.searchable_text()])
         except LLMError:
             return None
-        hits = self.vectors.search(vectors[0], top_k=1)
+        hits = self.vectors.search(vectors[0], top_k=5)
         for item_id, score, _payload in hits:
-            if item_id == exclude_id:
+            if item_id == exp.id or score < self.settings.knowledge_dedup_threshold:
                 continue
-            if score >= self.settings.knowledge_dedup_threshold:
-                existing = self.db.get_experience(item_id)
-                if existing is not None and existing.status is ExperienceStatus.CONFIRMED:
-                    return existing, score
+            existing = self.db.get_experience(item_id)
+            if existing is None or existing.status is not ExperienceStatus.CONFIRMED:
+                continue
+            if existing.target and exp.target and existing.target != exp.target:
+                continue
+            return existing, score
         return None
 
     def get(self, exp_id: str) -> Experience | None:

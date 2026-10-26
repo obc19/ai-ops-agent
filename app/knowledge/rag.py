@@ -60,6 +60,7 @@ class RAGService:
 def payload_from_experience(exp: Any) -> dict[str, Any]:
     return {
         "title": exp.title,
+        "target": getattr(exp, "target", ""),
         "root_cause": exp.root_cause,
         "resolution": exp.resolution,
         "tags": exp.tags,
