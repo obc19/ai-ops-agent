@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     kubernetes_api_url: str = ""
     kubernetes_token: str = ""
 
+    # ---- 集群内部署：SA 挂载目录留空则自动探测 ----
+    # 容器跑在 K8s 里时无需配置地址/Token，直接读 ServiceAccount 挂载
+    kubernetes_ca_file: str = ""
+    kubernetes_token_file: str = ""
+    # 数据源为自签证书时置 false；仅在可信内网使用
+    tls_verify: bool = True
+
     # ---- 多集群（留空则单集群，使用上面这份数据源地址）----
     clusters_config: str = ""       # 文件路径或内联 YAML
     default_cluster: str = "prod-cluster"

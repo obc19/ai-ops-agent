@@ -64,8 +64,15 @@ class BaseCollector(ABC):
         return self.settings.mock_mode or not self.configured
 
     # ---------- 通用能力 ----------
-    def _client(self, base_url: str) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=base_url, timeout=6.0, follow_redirects=True)
+    def _client(self, base_url: str, verify: bool | str | None = None) -> httpx.AsyncClient:
+        """trust_env=False：容器内忽略 HTTP(S)_PROXY，避免集群内访问被代理劫持。"""
+        return httpx.AsyncClient(
+            base_url=base_url,
+            timeout=6.0,
+            follow_redirects=True,
+            trust_env=False,
+            verify=self.settings.tls_verify if verify is None else verify,
+        )
 
     async def health_check(self) -> DataSourceHealth:
         if not self.configured and not self.settings.mock_mode:
