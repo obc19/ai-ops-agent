@@ -73,7 +73,21 @@ docker run -d --name ai-ops-agent -p 8080:8080 \
   ghcr.io/obc19/ai-ops-agent:latest
 ```
 
-### 方式三：本地开发
+### 方式三：Kubernetes 集群
+
+```bash
+kubectl apply -f deploy/k8s/00-namespace-rbac.yaml
+kubectl -n aiops create secret generic ai-ops-agent-secrets \
+  --from-literal=operator-token='***' --from-literal=viewer-token='***'
+kubectl apply -f deploy/k8s/
+
+kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
+# 打开 http://127.0.0.1:8080
+```
+
+单副本即可覆盖整个集群（采集是只读拉取，见 [部署架构说明](docs/部署架构说明-v0.1.md)）。
+
+### 方式四：本地开发
 
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
@@ -229,7 +243,7 @@ app/
 ├── services/               # 诊断闭环流水线
 └── scheduler.py            # 轮询检测调度
 frontend/                   # Vue 3 + TS 控制台（产物打包进镜像）
-deploy/                     # Dockerfile / docker-compose.yml
+deploy/                     # Dockerfile / compose / k8s 清单
 scripts/demo.py             # 端到端验收自证
 tests/                      # pytest
 ```

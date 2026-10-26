@@ -1,5 +1,5 @@
 # 单副本工作负载：采集调度与 SQLite 都在进程内，多副本会重复检测/重复告警
-# Service 三种端口统一走 8080：Dashboard 静态页与 /api 同源，无需额外 Web 服务器
+# Dashboard 与 /api 同源，Service 只需要暴露一个端口
 apiVersion: apps/v1
 kind: Deployment
 metadata:
