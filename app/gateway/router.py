@@ -84,9 +84,19 @@ class SafetyGateway:
         try:
             result = self.desensitizer.redact(joined)
         except DesensitizerError as exc:
-            self._audit_blocked(purpose, actor, str(exc))
-            logger.error("脱敏失败，外发已拦截：%s", exc)
+            self._fail_closed(purpose, actor, "desensitizer_error", str(exc))
             raise EgressBlocked(str(exc)) from exc
+
+        # 二次校验：脱敏后仍命中规则 → 宁可拦截也不外发
+        try:
+            residual = self.desensitizer.scan(result.text)
+        except DesensitizerError as exc:
+            self._fail_closed(purpose, actor, "residual_scan_error", str(exc))
+            raise EgressBlocked(str(exc)) from exc
+        if residual:
+            detail = "；".join(f"{item.rule_name}×{item.count}" for item in residual[:5])
+            self._fail_closed(purpose, actor, "residual_sensitive", detail)
+            raise EgressBlocked(f"脱敏后仍检出敏感内容：{detail}")
 
         # 本地模型通道：敏感数据不出境
         if result.findings and self.settings.local_model_enabled:
@@ -196,14 +206,27 @@ class SafetyGateway:
             output.append({**message, "content": chunk})
         return output
 
-    def _audit_blocked(self, purpose: str, actor: str, reason: str) -> None:
+    def _fail_closed(self, purpose: str, actor: str, metric: str, detail: str) -> None:
+        """fail-closed：写审计 + 触发工具自身 P1 告警（不依赖 LLM，避免递归）。"""
         self.store.append_audit(
             "llm_egress_blocked",
-            {"purpose": purpose, "reason": reason[:300]},
+            {"purpose": purpose, "metric": metric, "reason": detail[:300]},
             actor=actor,
             target=purpose,
             egress=True,
         )
+        logger.error("外发已拦截（%s）：%s", metric, detail[:200])
+        try:
+            from app.alerting.policy import raise_system_alert
+
+            raise_system_alert(
+                metric,
+                summary=f"外发被拦截：{metric}",
+                detail=f"用途 {purpose}｜{detail[:200]}",
+                store=self.store,
+            )
+        except Exception as exc:  # noqa: BLE001 - 自监控失败不得掩盖原始拦截
+            logger.warning("记录自监控告警失败：%s", exc)
 
     # ---------- 供外部检查 ----------
     def inspect(self, text: str):

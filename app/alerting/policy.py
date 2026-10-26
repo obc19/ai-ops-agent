@@ -14,7 +14,7 @@ from app.config.settings import Settings, get_settings
 from app.models.alert import Alert, StatusChange
 from app.models.diagnosis import DiagnosisReport
 from app.models.enums import AlertStatus, Severity
-from app.models.events import AnomalyEvent
+from app.models.events import AnomalyEvent, TimeWindow
 from app.storage import get_store
 from app.utils.clock import utc_now
 from app.utils.logging import get_logger
@@ -113,3 +113,36 @@ class AlertPolicy:
     def summarize(self, alert: Alert) -> str:
         state = "已关闭" if alert.status is AlertStatus.RESOLVED else "处理中"
         return f"[{alert.severity}] {alert.target} {alert.metric} ×{alert.count}（{state}）"
+
+
+def raise_system_alert(
+    metric: str,
+    summary: str,
+    *,
+    severity: Severity = Severity.P1,
+    detail: str = "",
+    suggestion: list[str] | None = None,
+    store=None,
+) -> Alert:
+    """自监控告警：工具自身异常（如脱敏失败）也要进告警列表，不能只写日志。"""
+    db = store or get_store()
+    now = utc_now()
+    alert = Alert(
+        severity=severity,
+        cluster="system",
+        namespace="ai-ops-agent",
+        target="safety-gateway",
+        metric=metric,
+        window=TimeWindow(start=now, end=now),
+        summary=summary,
+        root_cause=detail or summary,
+        suggestion=suggestion or ["检查脱敏规则配置", "确认外发被拦截的请求内容后重试"],
+        group_key=f"system/ai-ops-agent/{metric}",
+        channels=[],
+    )
+    alert.status_history.append(
+        StatusChange(to_status=AlertStatus.TRIGGERED, actor="system", note="工具自检")
+    )
+    db.save_alert(alert)
+    logger.error("自监控告警 [%s] %s", severity.value, summary)
+    return alert

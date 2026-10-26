@@ -75,6 +75,8 @@ async def require_auth(
 
 
 def _require_min(role: Role, current: str) -> str:
+    if not get_settings().auth_enabled:  # 本地体验模式：未配置任何 token 时放行
+        return current
     mapped = {r.value: r for r in Role}
     rank = ROLE_RANK.get(mapped.get(current, Role.VIEWER), 0)
     if rank < ROLE_RANK[role]:
