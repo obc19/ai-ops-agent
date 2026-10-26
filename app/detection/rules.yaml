@@ -1,0 +1,77 @@
+# 异常检测规则：阈值 / 百分比 / 基线 / 日志
+# 修改后无需改代码，重启生效
+
+thresholds:
+  - id: cpu-high
+    name: CPU 使用率过高
+    metric: cpu_usage_percent
+    operator: ">="
+    value: 85
+    severity: P1
+  - id: cpu-critical
+    name: CPU 使用率严重超限
+    metric: cpu_usage_percent
+    operator: ">="
+    value: 90
+    severity: P0
+  - id: mem-high
+    name: 内存使用率过高
+    metric: memory_usage_percent
+    operator: ">="
+    value: 85
+    severity: P1
+  - id: latency-high
+    name: P99 延迟过高
+    metric: http_latency_p99_ms
+    operator: ">="
+    value: 1000
+    severity: P1
+  - id: error-rate-high
+    name: 错误率过高
+    metric: http_error_rate_percent
+    operator: ">="
+    value: 5
+    severity: P0
+
+percent_change:
+  - id: cpu-surge
+    name: CPU 环比激增
+    metric: cpu_usage_percent
+    percent: 80
+    severity: P2
+
+baseline:
+  sigma: 3.0
+  min_samples: 6
+  # 只用前 60% 的样本建立基线，避免故障段污染
+  train_ratio: 0.6
+  severity: P2
+
+log_rules:
+  - id: log-cpu-throttle
+    name: CPU 限流 / 队列积压
+    pattern: "throttl|worker pool exhausted|queue length"
+    severity: P1
+  - id: log-oom
+    name: 内存溢出
+    pattern: "OutOfMemoryError|OOMKilled|heap space"
+    severity: P1
+  - id: log-timeout
+    name: 上游超时
+    pattern: "timeout|Timed out|deadline exceeded"
+    severity: P1
+  - id: log-conn
+    name: 连接失败
+    pattern: "connection refused|Connection reset"
+    severity: P1
+  - id: log-disk
+    name: 磁盘空间不足
+    pattern: "no space left on device"
+    severity: P0
+  - id: log-5xx
+    name: 服务端 5xx
+    pattern: "HTTP 5\\d\\d|Status 5\\d\\d"
+    severity: P1
+
+# 同一对象同一指标只保留最高级别的异常（去重）
+dedupe: true
