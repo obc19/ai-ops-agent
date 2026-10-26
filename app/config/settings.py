@@ -60,11 +60,6 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_timeout: float = 20.0
 
-    # ---- 本地模型 ----
-    local_model_url: str = ""
-    local_model_name: str = "qwen2.5:7b"
-    local_model_enabled: bool = False
-
     # ---- Embedding ----
     embedding_base_url: str = ""
     embedding_model: str = ""

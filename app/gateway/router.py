@@ -1,9 +1,8 @@
 """数据安全网关：外发前的唯一关口。
 
 分流规则（与确认书 D4/D15 一致）：
-- 敏感数据 + 本地模型可用 → 走本地通道，原文不出境；
-- 敏感数据 + 本地模型不可用 → 脱敏后再走外部通道（脱敏后内容才外发）；
 - 非敏感数据 → 直接走外部通道；
+- 敏感数据 → 脱敏后走外部通道（脱敏后内容才外发），不做本地模型分流；
 - 脱敏引擎异常 / 脱敏后仍检出敏感 → 一律拦截（fail-closed），写审计并告警。
 """
 
@@ -24,7 +23,7 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-Channel = Literal["local", "external", "external-redacted", "blocked"]
+Channel = Literal["external", "external-redacted", "blocked"]
 
 
 class EgressBlocked(RuntimeError):
@@ -98,17 +97,11 @@ class SafetyGateway:
             self._fail_closed(purpose, actor, "residual_sensitive", detail)
             raise EgressBlocked(f"脱敏后仍检出敏感内容：{detail}")
 
-        # 本地模型通道：敏感数据不出境
-        if result.findings and self.settings.local_model_enabled:
-            return await self._call_local(messages, purpose, actor, result.findings)
-
-        if result.findings and not self.settings.local_model_enabled:
-            logger.warning(
-                "本地模型未启用，敏感数据将脱敏后外发（%s）", result.summary
-            )
+        if result.findings:
+            logger.warning("敏感数据已脱敏后外发（%s）", result.summary)
 
         if not self.settings.llm_enabled:
-            raise LLMUnavailable("未配置外部 LLM，且本地模型不可用")
+            raise LLMUnavailable("未配置 LLM_API_KEY / LLM_BASE_URL，无法调用模型")
 
         # 用脱敏后的内容替换原消息文本
         safe_messages = self._rewrite(messages, result.text, joined)
@@ -149,44 +142,6 @@ class SafetyGateway:
             redacted_preview=result.text[:300],
             findings=result.findings,
             model=self.settings.llm_model,
-        )
-
-    async def _call_local(
-        self, messages, purpose: str, actor: str, findings: list[Finding]
-    ) -> EgressResult:
-        try:
-            text = await chat_text(
-                messages,
-                model=self.settings.local_model_name,
-                settings=self.settings.model_copy(
-                    update={
-                        "llm_base_url": self.settings.local_model_url,
-                        "llm_api_key": "local",
-                        "llm_model": self.settings.local_model_name,
-                    }
-                ),
-            )
-        except LLMError as exc:
-            logger.warning("本地模型调用失败，降级为脱敏后外发：%s", exc)
-            self.store.append_audit(
-                "local_model_failed", {"error": str(exc)[:200]}, actor=actor, egress=False
-            )
-            raise
-
-        self.store.append_audit(
-            "local_llm_call",
-            {"purpose": purpose, "model": self.settings.local_model_name,
-             "findings": [f.to_dict() for f in findings]},
-            actor=actor,
-            target=purpose,
-            egress=False,
-        )
-        return EgressResult(
-            text=text,
-            channel="local",
-            ok=True,
-            findings=findings,
-            model=self.settings.local_model_name,
         )
 
     @staticmethod

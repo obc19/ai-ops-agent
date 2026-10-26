@@ -38,8 +38,8 @@ async def overview(actor: str = Depends(require_auth)) -> dict:
         "mode": {
             "mock": settings.mock_mode,
             "llm_enabled": settings.llm_enabled,
+            "llm_model": settings.llm_model,
             "embedding_enabled": settings.embedding_enabled,
-            "local_model_enabled": settings.local_model_enabled,
             "trace_agent": settings.enable_trace_agent,
             "k8s_adapter": settings.enable_k8s_adapter,
             "knowledge_backend": settings.knowledge_backend,

@@ -42,8 +42,6 @@ services:
       LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com/v1}"
       LLM_MODEL: "${LLM_MODEL:-deepseek-chat}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
-      LOCAL_MODEL_URL: "${LOCAL_MODEL_URL:-}"
-      LOCAL_MODEL_ENABLED: "${LOCAL_MODEL_ENABLED:-false}"
       EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
