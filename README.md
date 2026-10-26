@@ -113,6 +113,9 @@ cp .env.example .env
 #   LLM_MODEL=deepseek-chat
 ```
 
+> 用 Docker Compose 时注意路径：compose 默认只读**自己所在目录**的 `.env`。
+> 所以要么 `cp .env.example deploy/.env`，要么启动时显式指定 `--env-file ../.env`（下面的命令用的是后者）。
+
 验证是否真的接上了（不用等诊断跑完）：
 
 ```bash
@@ -128,8 +131,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/system/llm-test \
 ```bash
 git clone https://github.com/obc19/ai-ops-agent.git
 cd ai-ops-agent/deploy
-export LLM_API_KEY=sk-xxxxxxxx        # 或用 --env-file ../.env
-docker compose up -d --build
+docker compose --env-file ../.env up -d --build   # .env 在仓库根目录，必须显式指定
 # 打开 http://127.0.0.1:8080
 ```
 

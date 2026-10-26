@@ -147,8 +147,7 @@ LLM_MODEL=deepseek-chat
 ```bash
 git clone https://github.com/obc19/ai-ops-agent.git
 cd ai-ops-agent/deploy
-export LLM_API_KEY=sk-xxxxxxxx          # 或 --env-file ../.env
-docker compose up -d --build
+docker compose --env-file ../.env up -d --build   # .env 在仓库根，compose 默认只读本目录
 docker compose logs -f ai-ops-agent     # 看启动日志
 ```
 

@@ -1,5 +1,8 @@
 services:
   ai-ops-agent:
+    # 注意：compose 只自动读取本文件同目录下的 .env。
+    # 密钥放在仓库根目录的 .env 时，必须显式指定：
+    #   docker compose --env-file ../.env up -d --build
     build:
       context: ..
       dockerfile: deploy/Dockerfile
