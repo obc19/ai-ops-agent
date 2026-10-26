@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.alerting.notifier import Notifier
 from app.api.deps import require_auth
-from app.models.alert import Alert
+from app.models.alert import STATUS_LABELS, Alert, InvalidTransition
 from app.models.enums import AlertStatus
 from app.storage import get_store
 from app.utils.clock import utc_now
@@ -46,6 +46,7 @@ async def list_alerts(
         "total": total,
         "items": [item.model_dump(mode="json") for item in items],
         "severity_count": get_store().count_alerts_by_severity(),
+        "status_labels": {s.value: STATUS_LABELS[s] for s in AlertStatus},
     }
 
 
@@ -73,9 +74,13 @@ async def confirm_alert(
     alert = store.get_alert(alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail=f"告警不存在：{alert_id}")
-    alert.status = AlertStatus.CONFIRMED
-    alert.confirmed_by = payload.confirmed_by
-    alert.note = payload.note
+    try:
+        alert.transition(
+            AlertStatus.CONFIRMED, actor=payload.confirmed_by or actor, note=payload.note
+        )
+    except InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    alert.note = payload.note or alert.note
     store.save_alert(alert)
     store.append_audit(
         "alert_confirmed",
@@ -94,8 +99,12 @@ async def resolve_alert(
     alert = store.get_alert(alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail=f"告警不存在：{alert_id}")
-    alert.status = AlertStatus.RESOLVED
-    alert.resolved_at = utc_now()
+    try:
+        alert.transition(
+            AlertStatus.RESOLVED, actor=payload.resolved_by or actor, note=payload.note
+        )
+    except InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     alert.note = payload.note or alert.note
     store.save_alert(alert)
     store.append_audit(
@@ -107,6 +116,25 @@ async def resolve_alert(
     return alert
 
 
+@router.post("/{alert_id}/reopen", response_model=Alert, summary="复发热重开（已关闭 → 已触发）")
+async def reopen_alert(
+    alert_id: str, payload: ResolveRequest, actor: str = Depends(require_auth)
+) -> Alert:
+    store = get_store()
+    alert = store.get_alert(alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"告警不存在：{alert_id}")
+    try:
+        alert.transition(
+            AlertStatus.TRIGGERED, actor=payload.resolved_by or actor, note=payload.note or "复发热重开"
+        )
+    except InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    store.save_alert(alert)
+    store.append_audit("alert_reopened", {"alert_id": alert_id}, actor=actor, target=alert_id)
+    return alert
+
+
 @router.post("/{alert_id}/renotify", summary="重新推送告警（手工重发）")
 async def renotify(alert_id: str, actor: str = Depends(require_auth)) -> dict:
     store = get_store()
@@ -115,6 +143,8 @@ async def renotify(alert_id: str, actor: str = Depends(require_auth)) -> dict:
         raise HTTPException(status_code=404, detail=f"告警不存在：{alert_id}")
     results = await Notifier().dispatch(alert)
     alert.notifications = results
+    if any(r.ok for r in results) and alert.status is AlertStatus.TRIGGERED:
+        alert.transition(AlertStatus.NOTIFIED, actor=actor, note="手工重发")
     store.save_alert(alert)
     store.append_audit(
         "alert_renotified", {"alert_id": alert_id}, actor=actor, target=alert_id

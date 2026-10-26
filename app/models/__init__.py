@@ -1,6 +1,11 @@
 """Pydantic 数据模型统一出口。"""
 
-from app.models.alert import Alert, NotificationResult
+from app.models.alert import (
+    Alert,
+    InvalidTransition,
+    NotificationResult,
+    StatusChange,
+)
 from app.models.cluster import Cluster, ClusterHealth, ClusterRegistration
 from app.models.diagnosis import DiagnosisFragment, DiagnosisReport, RAGHit
 from app.models.enums import (
@@ -27,7 +32,9 @@ from app.models.knowledge import Experience, ExperienceDraft, KnowledgeStats
 
 __all__ = [
     "Alert",
+    "InvalidTransition",
     "NotificationResult",
+    "StatusChange",
     "Cluster",
     "ClusterHealth",
     "ClusterRegistration",

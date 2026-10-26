@@ -9,6 +9,7 @@ from app.alerting.notifier import Notifier
 from app.alerting.policy import AlertPolicy
 from app.config.settings import get_settings
 from app.models.alert import Alert, NotificationResult
+from app.models.enums import AlertStatus
 from app.models.diagnosis import DiagnosisReport
 from app.models.events import AnomalyEvent
 from app.storage import get_store
@@ -51,6 +52,9 @@ class DiagnosisPipeline:
         if notify and is_new:
             notifications = await self.notifier.dispatch(alert)
             alert.notifications = notifications
+            if any(n.ok for n in notifications) and alert.status is AlertStatus.TRIGGERED:
+                channels = ",".join(n.channel for n in notifications if n.ok)
+                alert.transition(AlertStatus.NOTIFIED, actor="system", note=f"已通知：{channels}")
             self.db.save_alert(alert)
 
         return PipelineResult(

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.config.settings import Settings, get_settings
-from app.models.alert import Alert
+from app.models.alert import Alert, StatusChange
 from app.models.diagnosis import DiagnosisReport
 from app.models.enums import AlertStatus, Severity
 from app.models.events import AnomalyEvent
@@ -81,6 +81,9 @@ class AlertPolicy:
             group_key=group_key,
             degraded=bool(report and report.status.value != "ok"),
             channels=[c.strip() for c in self.settings.alert_channels.split(",") if c.strip()],
+        )
+        alert.status_history.append(
+            StatusChange(to_status=AlertStatus.TRIGGERED, actor="system", note="检测到异常")
         )
         self.db.save_alert(alert)
         logger.info("生成告警 %s（%s）：%s", alert.id, alert.severity.value, alert.summary)

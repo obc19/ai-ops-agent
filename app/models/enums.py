@@ -41,7 +41,10 @@ class DiagnosisStatus(StrEnum):
 
 
 class AlertStatus(StrEnum):
+    """告警状态机：触发 → 通知 → 确认（处置中）→ 关闭。"""
+
     TRIGGERED = "triggered"
+    NOTIFIED = "notified"
     CONFIRMED = "confirmed"
     RESOLVED = "resolved"
 
