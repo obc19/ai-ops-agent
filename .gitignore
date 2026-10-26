@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 运行时数据（不提交）
+data/
+*.db
+*.sqlite3
+logs/
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# 配置与密钥
+.env
+.env.local
+*.pem
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
