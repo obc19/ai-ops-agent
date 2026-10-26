@@ -1,0 +1,45 @@
+services:
+  ai-ops-agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ghcr.io/obc19/ai-ops-agent:latest
+    container_name: ai-ops-agent
+    ports:
+      - "8080:8080"
+    environment:
+      # 默认 mock 模式，开箱即用；接真实环境时改为 false 并配置下方数据源地址
+      MOCK_MODE: "${MOCK_MODE:-true}"
+      PORT: "8080"
+      DATA_DIR: /data
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      DETECT_INTERVAL: "${DETECT_INTERVAL:-10}"
+      RETENTION_DAYS: "${RETENTION_DAYS:-30}"
+      AUTH_TOKEN: "${AUTH_TOKEN:-}"
+      PROMETHEUS_URL: "${PROMETHEUS_URL:-}"
+      ELASTICSEARCH_URL: "${ELASTICSEARCH_URL:-}"
+      ELASTICSEARCH_INDEX: "${ELASTICSEARCH_INDEX:-app-logs-*}"
+      JAEGER_URL: "${JAEGER_URL:-}"
+      ENABLE_TRACE_AGENT: "${ENABLE_TRACE_AGENT:-false}"
+      ENABLE_K8S_ADAPTER: "${ENABLE_K8S_ADAPTER:-false}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.deepseek.com/v1}"
+      LLM_MODEL: "${LLM_MODEL:-deepseek-chat}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LOCAL_MODEL_URL: "${LOCAL_MODEL_URL:-}"
+      LOCAL_MODEL_ENABLED: "${LOCAL_MODEL_ENABLED:-false}"
+      EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status==200 else 1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
