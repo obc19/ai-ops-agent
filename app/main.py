@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import api_router
+from app.api.deps import ROLE_RANK, Role, resolve_role
 from app.api.routes import mock as mock_routes
 from app.config.constants import API_PREFIX, PROJECT_ROOT
 from app.config.settings import get_settings
@@ -67,6 +68,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    """三角色守卫：读操作需 viewer，写操作需 operator，mock 控制面同样受限。"""
+    if not settings.auth_enabled:
+        return await call_next(request)
+
+    path = request.url.path
+    if not (path.startswith(API_PREFIX) or path.startswith("/_mock")):
+        return await call_next(request)
+
+    role = resolve_role(
+        request.headers.get("authorization"), request.headers.get("x-auth-token")
+    )
+    if role is None:
+        return JSONResponse(
+            {"detail": "鉴权失败：请提供有效的 Token（Authorization: Bearer <TOKEN> 或 X-Auth-Token）"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    need = Role.VIEWER if request.method in ("GET", "HEAD", "OPTIONS") else Role.OPERATOR
+    if ROLE_RANK[role] < ROLE_RANK[need]:
+        return JSONResponse(
+            {"detail": f"权限不足：该操作需要 {need.value} 及以上角色（当前 {role.value}）"},
+            status_code=403,
+        )
+    return await call_next(request)
+
 
 app.include_router(api_router, prefix=API_PREFIX)
 app.include_router(mock_routes.router)

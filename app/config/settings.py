@@ -71,7 +71,11 @@ class Settings(BaseSettings):
     retention_days: int = Field(default=30, ge=1)
     alert_group_window: int = Field(default=300, ge=0)
     alert_cooldown: int = Field(default=300, ge=0)
-    auth_token: str = ""
+
+    # ---- 鉴权（静态 Token + 三角色；三者都不配则本地体验模式全放行）----
+    auth_token: str = ""          # admin
+    operator_token: str = ""      # operator：可执行确认/关闭/触发诊断
+    viewer_token: str = ""        # viewer：只读
 
     # ---- 告警渠道 ----
     alert_channels: str = "feishu,dingtalk,email,webhook"
@@ -100,6 +104,10 @@ class Settings(BaseSettings):
         return value
 
     # ---- 派生属性 ----
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.auth_token or self.operator_token or self.viewer_token)
+
     @property
     def llm_enabled(self) -> bool:
         return bool(self.llm_api_key and self.llm_base_url)
