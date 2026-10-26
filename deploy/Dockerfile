@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 # 多阶段构建：前端静态资源在 node 阶段产出，运行镜像只保留 Python 运行时与产物
 
-FROM node:20-alpine AS frontend-build
+# 前端产物与目标架构无关，固定在构建机架构（$BUILDPLATFORM）上跑
+# 否则 buildx 多架构构建时，arm64 那一路会把 npm install + vite 构建放进 QEMU 模拟，慢一个数量级
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm install --registry=https://registry.npmmirror.com --no-audit --no-fund
