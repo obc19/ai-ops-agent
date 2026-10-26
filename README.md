@@ -10,7 +10,7 @@
 </p>
 
 - 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
-- 镜像：`ghcr.io/obc19/ai-ops-agent:0.2.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.3.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
 - 完整使用手册：[USAGE.md](USAGE.md)
 
 ---
@@ -22,6 +22,13 @@
 ai-ops-agent 把它自动化：**只读采集 → 异常检测 → 多 Agent 定位根因 → 分级告警 → 人工确认后沉淀经验**。它本身不采集数据、不替代任何监控组件，而是站在 Prometheus / Elasticsearch / Jaeger / Kubernetes 之上做判断与归纳。
 
 默认 **mock 模式**，不接任何外部系统就能跑通全链路，方便先看效果再落地。
+
+> [!IMPORTANT]
+> **这个项目的「AI」是真的在调大模型。** 诊断、根因推断、报告撰写都走 LLM 推理。
+> 但模型密钥必须由你自己提供——它是计费凭证，不能随镜像分发。
+> **不填 `LLM_API_KEY` 时系统会退化成「规则模式」**：链路照样跑通、告警照样发，但结论是命中固定条件后套模板，没有推理能力。
+> 为了让这件事不会被忽略，未配置时控制台顶部会有一条红色横幅、启动日志会打醒目告警、`/healthz` 也会返回 `llm.configured=false`。
+
 
 ---
 
@@ -37,11 +44,12 @@ ai-ops-agent 把它自动化：**只读采集 → 异常检测 → 多 Agent 定
 
 - 四类 Agent：指标 / 日志 / 链路 / 根因，每条结论都带「置信度 + 依据」
 - 编排中枢负责超时控制（单 Agent 12s、总预算 45s）与失败降级，保证单次诊断 ≤60s
-- LLM 可选：配了 `LLM_API_KEY` 走模型推理，不配则走规则引擎，功能不中断
+- 模型层只认 `base_url + model + key`，DeepSeek / 通义 / Kimi / 智谱 / OpenAI / 自建 vLLM 皆可
+- 内置连通性探针：控制台点「测试连接」或 `POST /api/v1/system/llm-test`，一次真实请求验证密钥、网络、模型名
 
 **安全**
 
-- 脱敏网关只在外发前动数据：识别 IP / Token / 账号 / 主机名，敏感内容可路由到本地模型
+- 脱敏网关只在外发前动数据：识别 IP / Token / 账号 / 主机名，命中敏感内容则**脱敏后**再外发，审计记录原文与脱敏后预览
 - 脱敏失败 **fail-closed**：规则异常或残留敏感值未清干净时直接拦截，并生成 P1 自告警
 - 三角色静态鉴权（viewer / operator / admin），审计日志全覆盖，`egress_only` 可只看数据外发
 
@@ -79,9 +87,9 @@ Prometheus   Elasticsearch   Jaeger   Kubernetes
                             根因 Agent + RAG 检索历史经验
                                           │
                   脱敏网关（外发前脱敏；失败拦截）
-                          │                        │
-                   非敏感 → 外部 LLM        敏感 → 本地模型
-                                          │
+                                 │
+                          脱敏后内容 → 外部 LLM（OpenAI 兼容）
+                                 │
                      分级告警 P0/P1/P2 → 飞书 / 钉钉 / 邮件 / Webhook
                                           │ 人工确认
                             经验入本地向量库 → 反哺下一次诊断
@@ -93,11 +101,34 @@ Prometheus   Elasticsearch   Jaeger   Kubernetes
 
 ## 快速开始
 
+### 0. 先配模型（唯一必做的一步）
+
+没有它，后面几步照样能跑，但你看到的是规则模板，不是 AI 分析。
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入你的密钥（DeepSeek 控制台申请，或任意 OpenAI 兼容服务）
+#   LLM_API_KEY=sk-xxxxxxxx
+#   LLM_BASE_URL=https://api.deepseek.com/v1
+#   LLM_MODEL=deepseek-chat
+```
+
+验证是否真的接上了（不用等诊断跑完）：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/system/llm-test \
+  -H "Content-Type: application/json"
+# {"configured":true,"model":"deepseek-chat","ok":true,"latency_ms":780,"reply":"模型可用",...}
+```
+
+`ok:false` 时 `error` 字段会直接说是密钥错（401）、模型名错（404）、还是网络不通。
+
 ### 1. Docker Compose（推荐）
 
 ```bash
 git clone https://github.com/obc19/ai-ops-agent.git
 cd ai-ops-agent/deploy
+export LLM_API_KEY=sk-xxxxxxxx        # 或用 --env-file ../.env
 docker compose up -d --build
 # 打开 http://127.0.0.1:8080
 ```
@@ -107,6 +138,9 @@ docker compose up -d --build
 ```bash
 docker run -d --name ai-ops-agent -p 8080:8080 \
   -e MOCK_MODE=true \
+  -e LLM_API_KEY=sk-xxxxxxxx \
+  -e LLM_BASE_URL=https://api.deepseek.com/v1 \
+  -e LLM_MODEL=deepseek-chat \
   -v $(pwd)/data:/data \
   ghcr.io/obc19/ai-ops-agent:latest
 ```
@@ -116,6 +150,7 @@ docker run -d --name ai-ops-agent -p 8080:8080 \
 ```bash
 kubectl apply -f deploy/k8s/00-namespace-rbac.yaml
 kubectl -n aiops create secret generic ai-ops-agent-secrets \
+  --from-literal=llm-api-key='sk-xxxxxxxx' \
   --from-literal=operator-token='<token>' --from-literal=viewer-token='<token>'
 kubectl apply -f deploy/k8s/
 kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
@@ -126,7 +161,16 @@ kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-MOCK_MODE=true PORT=8080 python -m app.main
+cp .env.example .env                              # 填 LLM_API_KEY
+python -m app.main
+```
+
+### 确认跑的是 AI 而不是规则
+
+诊断详情页报告末尾会写 `LLM 参与：是/否`；审计页能看到 `llm_egress` 记录（模型名、脱敏命中项、往返内容预览）。
+
+```bash
+curl "http://127.0.0.1:8080/api/v1/audit?egress_only=true"
 ```
 
 ### 看一眼完整闭环
@@ -143,7 +187,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/diagnostics/detect \
 ops-cli alerts && ops-cli report <诊断ID>
 ```
 
-更多场景（接真实 Prometheus、Alertmanager 接入、飞书加签、多集群、鉴权、本地模型）见 **[USAGE.md](USAGE.md#6-常见使用示例)**。
+更多场景（接真实 Prometheus、Alertmanager 接入、飞书加签、多集群、鉴权、模型配置与排错）见 **[USAGE.md](USAGE.md#6-常见使用示例)**。
 
 ---
 
@@ -157,7 +201,8 @@ ops-cli alerts && ops-cli report <诊断ID>
 | `PORT` / `DATA_DIR` | `8080` / `./data` | 服务端口与数据目录（SQLite、向量库、审计） |
 | `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过 |
 | `ENABLE_TRACE_AGENT` / `ENABLE_K8S_ADAPTER` | `false` | 链路 / K8s 适配器开关 |
-| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | DeepSeek | 诊断使用的模型（OpenAI 兼容），不配则全部走规则 |
+| `LLM_API_KEY` | 空 | **必填**。不填则退化为规则模式（无 AI 推理） |
+| `LLM_BASE_URL` / `LLM_MODEL` | DeepSeek | 任意 OpenAI 兼容服务 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 空 | 经验向量化，留空用哈希向量兜底 |
 | `KNOWLEDGE_BACKEND` | `simple` | `simple` / `chroma` / `faiss` |
 | `DETECT_INTERVAL` | `10` | 轮询周期（秒），决定检测延迟 |
@@ -212,6 +257,7 @@ tests/                      # pytest
 - **诊断不自动处置**：只给结论与建议，重启、扩缩容等写操作需人工执行
 - **单副本运行**：进程内调度 + SQLite 单写，多副本会重复检测、重复告警、分裂知识库
 - **Agent 为单轮推理**：规则与 LLM 双路径，尚未做多轮工具调用与自主规划
+- **模型密钥需自带**：镜像不含任何密钥，未配置时降级为规则模式（横幅与 `/healthz` 会明示）
 - **链路 / K8s 适配器默认关闭**：需显式开启对应开关
 - **内嵌向量库适合中小规模**：经验上万条建议切 `KNOWLEDGE_BACKEND=chroma`
 - **报告不产出 PDF**：提供 JSON 与 Markdown（`GET /api/v1/diagnostics/{id}/markdown`）
@@ -223,7 +269,7 @@ tests/                      # pytest
 - [ ] 多租户与细粒度 RBAC
 - [ ] Helm Chart 与多副本部署
 - [ ] 插件市场与社区采集器生态
-- [ ] 本地模型推理优化（私有化部署替代外部 API 为主路径）
+- [ ] 多轮工具调用（让 Agent 自己查指标，而不是一次性喂上下文）
 
 ## 许可
 

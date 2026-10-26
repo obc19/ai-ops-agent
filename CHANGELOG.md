@@ -2,6 +2,30 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-26
+
+把「模型到底接没接上」从隐性前提变成显性状态。此前未配置密钥时系统静默降级为规则模式，
+用户在控制台看不出任何差别，误以为看到的模板结论是 AI 分析结果。
+
+### 新增
+
+- **模型连通性探针**：`POST /api/v1/system/llm-test` 真实发起一次最小请求，返回 `ok` / `latency_ms` / `reply` / `error`；401、404、网络超时分别可辨
+- **模型状态接口**：`GET /api/v1/system/llm` 报告 `configured` / `model` / `provider` / `api_key_masked`（仅前 4 位与后 4 位），完整密钥永不回显
+- **健康检查扩展**：`/healthz` 增加 `llm: {configured, model, provider, mode}`，`mode` 为 `llm` 或 `rules`
+- **控制台状态横幅**：未配置时顶部红条写明「当前没有接入大模型」，附可复制的配置片段；已配置时绿条显示模型与厂商，并带「测试连接」按钮
+- **启动日志告警**：未配置密钥时打印带边框的 WARNING，说明当前是规则模式及配置方法
+
+### 变更
+
+- **移除本地模型通道**：`LOCAL_MODEL_URL` / `LOCAL_MODEL_NAME` / `LOCAL_MODEL_ENABLED` 及相关分流逻辑全部删除，诊断请求统一走外部 OpenAI 兼容 API（自建模型可把 `LLM_BASE_URL` 指向 vLLM / Ollama 的 `/v1`）
+- `.env.example` 把模型配置提到第一优先级，并补充各服务商 `base_url` / `model` 对照说明
+- README 快速开始增加第 0 步「先配模型」，并说明规则模式与 AI 模式的差别
+
+### 已知限制
+
+- 密钥仍需通过环境变量提供，镜像不内置任何凭据
+- 模型返回非 JSON 时根因 Agent 回退规则结论，报告标注「LLM 不可用或返回不合规」
+
 ## [0.2.0] - 2026-10-26
 
 在 v0.1 骨架之上补齐运营闭环所需的功能，未改动项目结构。

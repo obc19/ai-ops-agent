@@ -1,6 +1,6 @@
 # ai-ops-agent 使用文档
 
-> 适用版本：**v0.2.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
+> 适用版本：**v0.3.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
 
 本文覆盖从零安装到日常使用的全部环节：项目能做什么、需要什么环境、怎么装、怎么配、怎么用、出问题怎么查。只想先跑起来看效果，直接跳到 [3.1 用 Docker Compose 启动](#31-用-docker-compose-启动推荐) 或 [3.4 用源码启动](#34-用源码启动本地开发)。
 
@@ -51,8 +51,8 @@ K8s events ┘                                                    ▼
                                       根因 Agent + RAG 检索历史经验
                                                            ▼
                                 脱敏网关（外发前脱敏；失败一律拦截）
-                                     │                     │
-                              非敏感 → 外部 LLM      敏感 → 本地模型（可选）
+                                                           ▼
+                                        脱敏后内容 → 外部 LLM（必配）
                                                            ▼
                                         P0/P1/P2 分级告警 → 飞书/钉钉/邮件/Webhook
                                                            ▼
@@ -92,32 +92,68 @@ K8s events ┘                                                    ▼
 
 ### 2.3 可选外部依赖
 
-全部**可选**，没配的模块自动跳过，不影响其他链路。
+### 2.2 外部依赖（按需接入）
+
+数据源**全部可选**，没配的模块自动跳过，不影响其他链路。但 **LLM 不是可选项**——它是这个项目叫「AI」Ops 的原因。
 
 | 依赖 | 用途 | 相关变量 |
 | --- | --- | --- |
+| **外部 LLM**（DeepSeek 等 OpenAI 兼容接口） | **诊断 / 根因 / 报告撰写，必配** | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` |
 | Prometheus | 指标查询（每轮 4 个 PromQL） | `PROMETHEUS_URL` |
 | Elasticsearch（ELK） | 日志检索（5 条日志规则） | `ELASTICSEARCH_URL` / `ELASTICSEARCH_INDEX` |
 | Jaeger | 链路查询 | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
 | Kubernetes apiserver | 集群事件 | K8s 内运行可自动发现；否则 `KUBERNETES_API_URL` |
-| 外部 LLM（DeepSeek 等 OpenAI 兼容接口） | 根因归纳（全部诊断） | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
 | 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.5](#45-告警渠道) |
 
-> **不配 LLM 也能用，但要知道差别**：Agent 全部走规则引擎给出结论，报告「置信度」会降低，末尾标注 `LLM 参与：否`，根因来自固定模板而非模型归纳。不配 embedding 时用内置哈希向量兜底，RAG 仍可用但语义精度有限。
+> **不配 LLM 会发生什么（必须知道）**：Agent 全部走内置规则，结论是「命中固定条件 → 套模板」，没有推理；报告置信度天然偏低，末尾标注 `LLM 参与：否`。
+> 此时链路仍然完整可跑，告警照发，但它已经不是 AI 分析了。系统会通过三种方式提醒你：
+>
+> 1. 启动日志打印一段带 `====` 框的 WARNING；
+> 2. 控制台顶部红色横幅，写明「当前没有接入大模型」并给出配置片段；
+> 3. `GET /healthz` 返回 `"llm": {"configured": false, "mode": "rules"}`。
+>
+> 不配 embedding 时用内置哈希向量兜底，RAG 仍可用但语义精度有限——这条影响小，可以后补。
 
 ---
 
 ## 3. 安装与启动
+
+### 3.0 先准备模型（否则后面的「AI 分析」只是规则模板）
+
+任选一个 OpenAI 兼容服务，拿到三样东西：`API Key`、`Base URL`、`模型名`。
+
+| 服务 | `LLM_BASE_URL` | `LLM_MODEL` 示例 |
+| --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| 阿里通义 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| 月之暗面 Kimi | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
+| 智谱 | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-plus` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| 自建 vLLM / Ollama | `http://<host>:8000/v1` | 部署时的模型名 |
+
+写好 `.env`（仓库根目录有 `.env.example` 可直接复制）：
+
+```bash
+LLM_API_KEY=sk-xxxxxxxx
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+```
+
+> 密钥只走环境变量，不进配置文件、不进镜像、不在接口里回显（`/api/v1/system/llm` 只返回打码值 `sk-x…abcd`）。
 
 ### 3.1 用 Docker Compose 启动（推荐）
 
 ```bash
 git clone https://github.com/obc19/ai-ops-agent.git
 cd ai-ops-agent/deploy
+export LLM_API_KEY=sk-xxxxxxxx          # 或 --env-file ../.env
 docker compose up -d --build
 docker compose logs -f ai-ops-agent     # 看启动日志
 ```
+
+启动日志里应有一行：`模型已接入：deepseek-chat @ api.deepseek.com（密钥 sk-x…abcd）`。
+如果看到的是 `====` 框住的「未检测到 LLM_API_KEY」，说明环境变量没传进容器。
 
 打开 <http://127.0.0.1:8080> 即为控制台。默认 `MOCK_MODE=true`，无需任何数据源即可看到完整链路。
 
@@ -132,8 +168,13 @@ docker compose down          # 停止并移除容器，数据保留在 deploy/da
 ```bash
 docker run -d --name ai-ops-agent -p 8080:8080 \
   -e MOCK_MODE=true \
+  -e LLM_API_KEY=sk-xxxxxxxx \
+  -e LLM_BASE_URL=https://api.deepseek.com/v1 \
+  -e LLM_MODEL=deepseek-chat \
   -v $(pwd)/data:/data \
   ghcr.io/obc19/ai-ops-agent:latest
+
+docker logs -f ai-ops-agent | head -5     # 确认「模型已接入」
 ```
 
 接真实环境时把环境变量换成实际值（建议用 `--env-file .env` 传入，模板见仓库根目录 `.env.example`）：
@@ -191,7 +232,7 @@ MOCK_MODE=true PORT=8080 python -m app.main
 PowerShell 不支持前置赋值，改用：
 
 ```powershell
-$env:MOCK_MODE="true"; $env:PORT="8080"
+$env:MOCK_MODE="true"; $env:PORT="8080"; $env:LLM_API_KEY="sk-xxxxxxxx"
 python -m app.main
 ```
 
@@ -210,19 +251,49 @@ npm run build   # 构建产物，之后由 FastAPI 在 / 直接托管
 pip install -e .
 ```
 
-### 3.5 启动后确认
+### 3.5 验证模型确实连通（3 秒，不用等诊断跑完）
+
+服务起来后先做这一步，能省掉后面 90% 的「为什么报告像模板」的排查。
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/system/llm-test
+```
+
+成功：
+
+```json
+{"configured": true, "model": "deepseek-chat", "provider": "api.deepseek.com",
+ "latency_ms": 812, "ok": true, "reply": "模型可用", "error": ""}
+```
+
+失败时会直接告诉你卡在哪一层，`error` 形如：
+
+| 返回 | 含义 | 处理 |
+| --- | --- | --- |
+| `ok:false, error:"未配置模型密钥…"` | 环境变量没传进去 | 检查 `docker exec <c> env \| grep LLM` |
+| `HTTP 401` | 密钥错 / 已失效 / 欠费 | 换 key |
+| `HTTP 404` | `LLM_MODEL` 名字不对 | 按服务商文档改模型名 |
+| `HTTP 400 ... model` | 该服务不支持这个模型名 | 同上 |
+| `网络错误：ConnectTimeout` | 容器出不了网 / 需要代理 | 检查出口，或在 `LLM_BASE_URL` 用可达的代理地址 |
+
+控制台等价操作：顶部绿色横幅右侧「测试连接」按钮，结果直接显示往返耗时；未配置时顶部是红色横幅。
+
+### 3.6 启动后确认
 
 | 地址 | 用途 |
 | --- | --- |
 | `http://127.0.0.1:8080/` | 控制台（总览 / 告警 / 诊断 / 知识库 / 审计） |
 | `http://127.0.0.1:8080/docs` | OpenAPI 交互文档，可直接试调接口 |
-| `http://127.0.0.1:8080/healthz` | 健康检查：调度器状态、已跑轮次、运行时长 |
+| `http://127.0.0.1:8080/healthz` | 健康检查：调度器状态、已跑轮次、运行时长、**模型是否接入** |
 
 ```bash
 curl -s http://127.0.0.1:8080/healthz
-# {"status":"ok","version":"0.2.0","mock_mode":true,"scheduler_running":true,
-#  "scheduler_rounds":8,"uptime_seconds":82.4,...}
+# {"status":"ok","version":"0.3.0","mock_mode":true,"scheduler_running":true,
+#  "scheduler_rounds":8,"uptime_seconds":82.4,
+#  "llm":{"configured":true,"model":"deepseek-chat","provider":"api.deepseek.com","mode":"llm"}}
 ```
+
+`llm.mode` 为 `rules` 就说明当前没接模型——此时 `/api/v1/system/llm-test` 会给出具体原因。
 
 `curl` 走本地代理导致 502 时，加 `--noproxy '*'` 或设 `NO_PROXY=127.0.0.1,localhost`。
 
