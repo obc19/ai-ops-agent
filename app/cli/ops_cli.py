@@ -113,14 +113,73 @@ def cmd_alerts(args) -> int:
 
 
 def cmd_alert_action(args) -> int:
+    body = {"note": args.note or "", "resolved_by": args.by or "operator"}
+    if args.action == "confirm":
+        body = {"confirmed_by": args.by or "operator", "note": args.note or ""}
     with _client(args) as client:
-        if args.action == "confirm":
-            body = {"confirmed_by": args.by or "operator", "note": args.note or ""}
-            data = client.post(f"{PREFIX}/alerts/{args.id}/confirm", json=body).json()
-        else:
-            body = {"note": args.note or "", "resolved_by": args.by or "operator"}
-            data = client.post(f"{PREFIX}/alerts/{args.id}/resolve", json=body).json()
+        resp = client.post(f"{PREFIX}/alerts/{args.id}/{args.action}", json=body)
+    if resp.status_code >= 400:
+        print(f"失败（HTTP {resp.status_code}）：{resp.json().get('detail')}")
+        return 1
+    data = resp.json()
     print(f"告警 {data['id']} 状态 → {data['status']}")
+    for item in data.get("status_history", []):
+        print(f"  {item['at']} {item['to_status']} by {item['actor']} {item['note']}")
+    return 0
+
+
+def cmd_clusters(args) -> int:
+    with _client(args) as client:
+        data = client.get(f"{PREFIX}/clusters/sources").json()
+    print(f"共 {len(data)} 个集群")
+    for item in data:
+        print(f"  {item['name']}（ns={item['namespace']}，enabled={item['enabled']}）")
+        for name, url in item["sources"].items():
+            if name == "elasticsearch_index" or not url:
+                continue
+            print(f"    - {name}: {url}")
+    return 0
+
+
+def cmd_ingest(args) -> int:
+    """把 Alertmanager 告警（文件或命令行参数）灌入诊断闭环。"""
+    if args.file:
+        payload = json.loads(open(args.file, encoding="utf-8").read())
+    else:
+        payload = {
+            "version": "4",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "fingerprint": "cli",
+                    "labels": {
+                        "alertname": args.metric,
+                        "severity": args.severity.lower(),
+                        "instance": args.target,
+                        "cluster": args.cluster,
+                        "namespace": args.namespace,
+                    },
+                    "annotations": {"summary": args.summary or f"{args.target} {args.metric}"},
+                }
+            ],
+        }
+    with _client(args) as client:
+        resp = client.post(
+            f"{PREFIX}/ingest/alertmanager",
+            json=payload,
+            params={"notify": not args.no_notify},
+        )
+    if resp.status_code >= 400:
+        print(f"失败（HTTP {resp.status_code}）：{resp.json().get('detail')}")
+        return 1
+    data = resp.json()
+    print(f"接收 {data['accepted']} 条，跳过 {data['skipped']} 条")
+    for item in data["items"]:
+        if item.get("error"):
+            print(f"  失败 {item['target']}：{item['error']}")
+        else:
+            print(f"  [{item['severity']}] {item['target']} → 告警 {item['alert_id']}（{item['alert_status']}）")
     return 0
 
 
@@ -199,16 +258,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("alerts", help="告警列表")
     p.add_argument("--severity", choices=["P0", "P1", "P2"])
-    p.add_argument("--status", choices=["triggered", "confirmed", "resolved"])
+    p.add_argument("--status", choices=["triggered", "notified", "confirmed", "resolved"])
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(func=cmd_alerts)
 
-    for action in ("confirm", "resolve"):
+    for action in ("confirm", "resolve", "reopen"):
         p = sub.add_parser(f"alert-{action}", help=f"{action} 告警")
         p.add_argument("id")
         p.add_argument("--by", default="operator")
         p.add_argument("--note", default="")
         p.set_defaults(func=cmd_alert_action, action=action)
+
+    sub.add_parser("clusters", help="已配置集群与数据源").set_defaults(func=cmd_clusters)
+
+    p = sub.add_parser("ingest", help="把 Alertmanager 告警灌入诊断闭环")
+    p.add_argument("--file", default="", help="Alertmanager webhook JSON 文件")
+    p.add_argument("--target", default="unknown")
+    p.add_argument("--metric", default="external_alert")
+    p.add_argument("--cluster", default="prod-cluster")
+    p.add_argument("--namespace", default="prod")
+    p.add_argument("--severity", default="P1", choices=["P0", "P1", "P2"])
+    p.add_argument("--summary", default="")
+    p.add_argument("--no-notify", action="store_true")
+    p.set_defaults(func=cmd_ingest)
 
     p = sub.add_parser("report", help="打印诊断报告 Markdown")
     p.add_argument("id")

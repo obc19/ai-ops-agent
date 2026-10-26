@@ -29,6 +29,10 @@ SEVERITY_MAP = {
     "warn": Severity.P1,
     "info": Severity.P2,
     "notice": Severity.P2,
+    # 也允许直接写 P0/P1/P2
+    "p0": Severity.P0,
+    "p1": Severity.P1,
+    "p2": Severity.P2,
 }
 
 
