@@ -4,12 +4,12 @@ version = "0.1.0"
 description = "基于 Python 的轻量级 AI 智能体故障排查工具"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = { text = "MIT" }
 authors = [{ name = "ai-ops-agent contributors" }]
 keywords = ["aiops", "sre", "llm", "observability", "root-cause-analysis"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
