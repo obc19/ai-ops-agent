@@ -1,70 +1,106 @@
 # ai-ops-agent
 
-基于 Python 的**轻量级 AI 智能体故障排查工具**。统一接入指标、日志、链路与集群事件，由多个诊断 Agent 协同定位根因，自动分级告警，并把人工确认过的经验沉淀进本地知识库，通过 RAG 越用越准。
+**轻量级 AI 智能体故障排查工具**：统一接入指标、日志、链路与集群事件，由多个诊断 Agent 协同定位根因，自动分级告警，并把人工确认过的经验沉淀进本地知识库，通过 RAG 越用越准。
 
-> 当前版本为 **v0.2.0**：v0.1 骨架之上补齐了告警状态机、三角色静态鉴权、多集群接入、Alertmanager Webhook 接入、脱敏二次校验自告警、飞书/钉钉加签；端到端可跑通，Agent 推理支持「规则引擎」与「LLM」两条路径，未配置 LLM 时自动走规则结论。
+<p>
+<img alt="version" src="https://img.shields.io/badge/version-0.2.0-blue">
+<img alt="python" src="https://img.shields.io/badge/python-3.11%2B-3776ab">
+<img alt="license" src="https://img.shields.io/badge/license-MIT-green">
+</p>
 
-- 仓库地址：<https://github.com/obc19/ai-ops-agent>　｜　协议：MIT
+- 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)　｜　镜像：`ghcr.io/obc19/ai-ops-agent`
+- 完整使用手册：[USAGE.md](USAGE.md)
 
 ---
 
-## 特性
+## 这是什么
 
-- **一条命令起步**：`docker compose up -d` 或 `docker run`，默认 mock 模式开箱即用，无需任何外部依赖
-- **数据源全外接**：Prometheus / ELK(Elasticsearch) / Jaeger / Kubernetes 只读接入，工具本体不捆绑重组件
-- **四级检测**：静态阈值、环比激增、3σ 滑动基线、日志关键词/正则
-- **多集群**：一份 YAML 描述多个集群的数据源，适配器按集群实例化，事件与告警天然带集群维度
-- **四类 Agent**：指标 / 日志 / 链路 / 根因，产出「置信度 + 依据」，编排中枢负责超时控制与失败降级
-- **脱敏网关**：外发前识别 IP / Token / 账号 / 主机名，敏感数据可路由到本地模型，脱敏失败一律拦截（fail-closed）
-- **告警闭环**：P0/P1/P2 分级，飞书 / 钉钉（均支持加签）/ 邮件 / Webhook 四渠道，同对象同指标聚合，P0 支持升级
-- **告警状态机**：触发 → 通知 → 处置中 → 已关闭，全程留痕，支持复发重开
-- **外部告警接入**：`POST /ingest/alertmanager` 直接消费 Alertmanager Webhook，复用诊断与知识库
-- **经验自学习**：草稿 → 人工确认 → 入库 → 语义检索（RAG）→ 可回滚，入库前先脱敏
-- **只读控制台**：Vue 3 + TS，集群总览 / 告警 / 诊断报告 / 知识库 / 审计
+线上故障发生时，值班同学要在指标、日志、链路、集群事件之间来回跳，凭经验拼出根因，再写成告警。这套动作重复、耗时、且严重依赖个人经验。
+
+ai-ops-agent 把它自动化：**只读采集 → 异常检测 → 多 Agent 定位根因 → 分级告警 → 人工确认后沉淀经验**。它本身不采集数据、不替代任何监控组件，而是站在 Prometheus / Elasticsearch / Jaeger / Kubernetes 之上做判断与归纳。
+
+默认 **mock 模式**，不接任何外部系统就能跑通全链路，方便先看效果再落地。
+
+---
+
+## 主要特性
+
+**接入与检测**
+
+- 数据源全外接：Prometheus / ELK(Elasticsearch) / Jaeger / Kubernetes 只读接入，未配置的源自动跳过
+- 多集群：一份 YAML 描述多个集群，事件与告警天然带集群维度
+- 四级检测：静态阈值、环比激增、3σ 滑动基线、日志关键词与正则（规则在 `app/detection/rules.yaml`）
+
+**诊断**
+
+- 四类 Agent：指标 / 日志 / 链路 / 根因，每条结论都带「置信度 + 依据」
+- 编排中枢负责超时控制（单 Agent 12s、总预算 45s）与失败降级，保证单次诊断 ≤60s
+- LLM 可选：配了 `LLM_API_KEY` 走模型推理，不配则走规则引擎，功能不中断
+
+**安全**
+
+- 脱敏网关只在外发前动数据：识别 IP / Token / 账号 / 主机名，敏感内容可路由到本地模型
+- 脱敏失败 **fail-closed**：规则异常或残留敏感值未清干净时直接拦截，并生成 P1 自告警
+- 三角色静态鉴权（viewer / operator / admin），审计日志全覆盖，`egress_only` 可只看数据外发
+
+**告警与闭环**
+
+- P0 / P1 / P2 分级，飞书 / 钉钉（均支持加签）/ 邮件 / Webhook 四渠道
+- 同对象同指标聚合，P0 不抑制可升级；状态机「触发 → 通知 → 处置中 → 已关闭」全程留痕，支持复发重开
+- `POST /ingest/alertmanager` 直接消费 Alertmanager Webhook，复用同一套诊断与知识库
+- 经验「草稿 → 人工确认 → 入库 → 语义检索 → 可回滚」，入库前先脱敏
+
+**交付形态**
+
+- 单镜像 all-in-one：后端 + 控制台 + 调度器同一进程，同源同端口，无额外 nginx
+- 控制台：Vue 3 + TS，集群总览 / 告警 / 诊断报告 / 知识库 / 审计
+- 一条命令起步：`docker compose up -d`，默认 mock 模式开箱即用
 
 ---
 
 ## 架构
 
 ```
-外部数据源（复用已有环境，不随镜像分发）
-  Prometheus    Elasticsearch(ELK)    Jaeger    Kubernetes
-        │              │                │            │
-        └──── 只读 API/HTTP 查询 ───────┴────────────┘
-                             │
-                   采集适配器层（插件式，无状态）
-         prometheus / elasticsearch / jaeger / kubernetes
-                             │ 标准化事件 MetricEvent / LogEvent / TraceEvent
-                   异常检测引擎（阈值 / 环比 / 3σ / 日志规则）
-                             │ AnomalyEvent
-                   编排中枢 Orchestrator（超时 12s/Agent，总预算 45s）
-        ┌──────────────┬──────────────┬──────────────┐
-     指标 Agent      日志 Agent      链路 Agent
-        └──────────────┴──────────────┴──────┬───────┘
-                                             │ 诊断片段（置信度 + 依据）
-                              根因定位 Agent + RAG 检索历史经验
-                                             │
-        数据安全网关（外发前脱敏 → 敏感走本地模型 / 非敏感走外部 LLM）
-                                             │
-                       分级告警 P0/P1/P2 → 飞书/钉钉/邮件/Webhook
-                                             │ 人工确认
-                              经验入本地向量库（FAISS/Chroma/内嵌）
-                                             └──→ 反哺下一次诊断
+Prometheus   Elasticsearch   Jaeger   Kubernetes
+     │             │           │          │   只读 API 查询
+     └─────────────┴───────────┴──────────┘
+                          │
+                采集适配器（插件式，无状态）
+                          │  标准化事件 Metric / Log / Trace / K8s
+                异常检测（阈值 / 环比 / 3σ / 日志规则）
+                          │
+          编排中枢 Orchestrator（12s per Agent，45s 预算）
+        ┌─────────────┬─────────────┬─────────────┐
+     指标 Agent     日志 Agent     链路 Agent
+        └─────────────┴─────────────┴──────┬──────┘
+                                          │ 诊断片段（置信度 + 依据）
+                            根因 Agent + RAG 检索历史经验
+                                          │
+                  脱敏网关（外发前脱敏；失败拦截）
+                          │                        │
+                   非敏感 → 外部 LLM        敏感 → 本地模型
+                                          │
+                     分级告警 P0/P1/P2 → 飞书 / 钉钉 / 邮件 / Webhook
+                                          │ 人工确认
+                            经验入本地向量库 → 反哺下一次诊断
 ```
+
+单个实例即可覆盖整个集群：采集是只读拉取，一次查询天然是全局视角，无需在每台机器上部署。
 
 ---
 
 ## 快速开始
 
-### 方式一：Docker Compose（推荐）
+### 1. Docker Compose（推荐）
 
 ```bash
-cd deploy
+git clone https://github.com/obc19/ai-ops-agent.git
+cd ai-ops-agent/deploy
 docker compose up -d --build
 # 打开 http://127.0.0.1:8080
 ```
 
-### 方式二：单容器
+### 2. 单容器
 
 ```bash
 docker run -d --name ai-ops-agent -p 8080:8080 \
@@ -73,194 +109,111 @@ docker run -d --name ai-ops-agent -p 8080:8080 \
   ghcr.io/obc19/ai-ops-agent:latest
 ```
 
-### 方式三：Kubernetes 集群
+### 3. Kubernetes
 
 ```bash
 kubectl apply -f deploy/k8s/00-namespace-rbac.yaml
 kubectl -n aiops create secret generic ai-ops-agent-secrets \
-  --from-literal=operator-token='***' --from-literal=viewer-token='***'
+  --from-literal=operator-token='<token>' --from-literal=viewer-token='<token>'
 kubectl apply -f deploy/k8s/
-
 kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
-# 打开 http://127.0.0.1:8080
 ```
 
-单副本即可覆盖整个集群（采集是只读拉取，见 [部署架构说明](docs/部署架构说明-v0.1.md)）。
-
-### 方式四：本地开发
+### 4. 源码（本地开发）
 
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
 MOCK_MODE=true PORT=8080 python -m app.main
-# PowerShell 不支持前置赋值，改用：
-# $env:MOCK_MODE="true"; $env:PORT="8080"; python -m app.main
-
-# 前端日常开发：dev server 带热更新，/api 已代理到 8080
-cd frontend && npm install && npm run dev        # http://127.0.0.1:5173
-
-# 只有要验证"单镜像效果"时才构建（产物由 FastAPI 在 / 托管）
-npm run build
 ```
 
-### 体验一条完整故障闭环
+### 看一眼完整闭环
+
+注入故障 → 自动检测诊断 → 分级告警 → 确认入库：
 
 ```bash
-# 1) 注入一个 mock 故障（无真实环境时）
 curl -X POST http://127.0.0.1:8080/_mock/fault \
-  -H "Content-Type: application/json" \
-  -d '{"target":"order-service","metric":"cpu_usage_percent"}'
+  -H "Content-Type: application/json" -d '{"target":"order-service","severity":"P0"}'
 
-# 2) 立即执行一轮检测 → 诊断 → 告警
 curl -X POST http://127.0.0.1:8080/api/v1/diagnostics/detect \
   -H "Content-Type: application/json" -d '{"notify":true}'
 
-# 3) 查看告警与诊断报告
-ops-cli alerts
-ops-cli report <诊断ID>
-
-# 4) 确认告警 → 生成经验草稿 → 人工确认入库
-ops-cli alert-confirm <告警ID> --by alice
-curl -X POST http://127.0.0.1:8080/api/v1/knowledge \
-  -H "Content-Type: application/json" -d '{"diagnosis_id":"<诊断ID>"}'
-ops-cli knowledge confirm <经验ID> --by alice
-
-# 5) 再次触发相似故障，可看到 RAG 命中历史经验
-curl -X POST http://127.0.0.1:8080/_mock/reset
+ops-cli alerts && ops-cli report <诊断ID>
 ```
+
+更多场景（接真实 Prometheus、Alertmanager 接入、飞书加签、多集群、鉴权、本地模型）见 **[USAGE.md](USAGE.md#6-常见使用示例)**。
 
 ---
 
-## 配置
+## 配置速查
 
-全部通过环境变量注入，无需改镜像。完整清单见 `.env.example`。
+全部通过环境变量注入（支持 `.env`），完整清单见 [USAGE.md 第 4 章](USAGE.md#4-配置参考) 与 `.env.example`。
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `MOCK_MODE` | `true` | 使用内置 mock 数据源（无外部依赖即可跑通） |
+| `MOCK_MODE` | `true` | 用内置 mock 数据源，无需外部依赖 |
 | `PORT` / `DATA_DIR` | `8080` / `./data` | 服务端口与数据目录（SQLite、向量库、审计） |
-| `PROMETHEUS_URL` | 空 | Prometheus 地址，留空则该适配器跳过 |
-| `ELASTICSEARCH_URL` / `ELASTICSEARCH_INDEX` | 空 / `app-logs-*` | 日志检索入口 |
-| `JAEGER_URL` | 空 | 链路查询入口 |
-| `KUBERNETES_API_URL` / `KUBERNETES_TOKEN` | 空 | 集群事件入口 |
-| `ENABLE_TRACE_AGENT` | `false` | 链路 Agent 开关（默认关闭，可插拔） |
-| `ENABLE_K8S_ADAPTER` | `false` | K8s 适配器开关 |
-| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | DeepSeek 默认 | 非敏感数据使用的外部 LLM |
+| `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过 |
+| `ENABLE_TRACE_AGENT` / `ENABLE_K8S_ADAPTER` | `false` | 链路 / K8s 适配器开关 |
+| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | DeepSeek | 非敏感数据的外部模型，不配则走规则 |
 | `LOCAL_MODEL_URL` / `LOCAL_MODEL_ENABLED` | 空 / `false` | 敏感数据使用的本地模型（Ollama） |
-| `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` | 空 | OpenAI 兼容 embedding；留空则用本地哈希向量兜底 |
-| `KNOWLEDGE_BACKEND` | `simple` | `simple` / `chroma` |
+| `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 空 | 经验向量化，留空用哈希向量兜底 |
+| `KNOWLEDGE_BACKEND` | `simple` | `simple` / `chroma` / `faiss` |
 | `DETECT_INTERVAL` | `10` | 轮询周期（秒），决定检测延迟 |
-| `RETENTION_DAYS` | `30` | 告警/诊断/审计保留天数（经验不自动删） |
-| `ALERT_GROUP_WINDOW` / `ALERT_COOLDOWN` | `300` / `300` | 聚合窗口与通知冷却 |
-| `CLUSTERS_CONFIG` | 空 | 多集群 YAML（文件路径或内联），留空为单集群，示例见 `deploy/clusters.example.yaml` |
-| `DEFAULT_CLUSTER` / `DEFAULT_NAMESPACE` | `prod-cluster` / `prod` | 单集群模式下的默认归属 |
-| `AUTH_TOKEN` | 空 | 管理员 Token（配置后所有 API 需 `Authorization: Bearer <token>`） |
-| `OPERATOR_TOKEN` / `VIEWER_TOKEN` | 空 | operator（可执行）/ viewer（只读）角色 Token |
+| `ALERT_CHANNELS` | 四渠道全开 | 逗号分隔，如 `feishu,webhook` |
+| `CLUSTERS_CONFIG` | 空 | 多集群 YAML 路径或内联内容 |
+| `AUTH_TOKEN` / `OPERATOR_TOKEN` / `VIEWER_TOKEN` | 空 | 三角色 Token，全空则本地体验模式 |
 
 ---
 
-## API
-
-Base：`/api/v1`，交互式文档：`/docs`
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/overview` | 全局总览（统计、数据源健康、运行模式） |
-| POST / GET | `/clusters` | 注册集群 / 集群列表 |
-| GET | `/clusters/sources` | 已配置集群与其数据源（多集群） |
-| GET | `/clusters/{name}/health` | 数据源健康度 |
-| POST | `/ingest/alertmanager` | 接收 Alertmanager Webhook，直接进入诊断闭环 |
-| POST | `/diagnostics` | 手工触发一次诊断（也可用于外部告警接入） |
-| POST | `/diagnostics/detect` | 立即执行一轮采集 + 检测 + 诊断 |
-| GET | `/diagnostics` / `/diagnostics/{id}` | 诊断列表 / 详情（含依据与 RAG 命中） |
-| GET | `/diagnostics/{id}/markdown` | 导出 Markdown 报告 |
-| GET | `/alerts` | 告警列表（按级别/状态/集群过滤） |
-| GET | `/alerts/{id}/markdown` | 告警 Markdown |
-| POST | `/alerts/{id}/confirm` / `resolve` / `reopen` / `renotify` | 确认 / 关闭 / 复发重开 / 重发 |
-| GET | `/knowledge` / `/knowledge/stats` / `/knowledge/search` | 经验列表 / 统计 / 语义检索 |
-| POST | `/knowledge` | 由诊断报告生成经验草稿 |
-| POST | `/knowledge/{id}/confirm` | 人工确认入库（`confirmed_by` 必填） |
-| POST | `/knowledge/{id}/rollback` | 回滚经验 |
-| GET | `/audit` | 审计日志（`egress_only=true` 只看数据外发） |
-| GET | `/healthz` | 健康检查（容器探针） |
-
-Mock 控制面（仅 `MOCK_MODE=true` 有意义）：`POST /_mock/fault`、`POST /_mock/reset`、`GET /_mock/faults`、`GET /_mock/sink`。
-
----
-
-## CLI
-
-```bash
-ops-cli --api http://127.0.0.1:8080 overview
-ops-cli diagnose --target order-service --metric cpu_usage_percent --severity P1
-ops-cli detect
-ops-cli alerts --severity P0
-ops-cli alert-confirm <告警ID> --by alice
-ops-cli knowledge list --status draft
-ops-cli knowledge confirm <经验ID> --by alice
-ops-cli knowledge rollback <经验ID> --reason "重复经验"
-ops-cli audit --egress
-```
-
----
-
-## 验收
-
-```bash
-python scripts/demo.py          # 或 make demo
-```
-
-脚本会自动拉起 mock LLM 与本地服务，逐条验证需求文档第 6 章：
-
-| # | 验收项 | 判定方式 |
-| --- | --- | --- |
-| 1 | 三类数据源可接入可查询且可外接 | `/overview` 中各适配器 `reachable=true` |
-| 2 | 模拟故障 60s 内完成诊断并分级告警 | 注入 CPU 故障 → 计时 `/diagnostics/detect` |
-| 3 | `docker compose up` 一键启动 | 有 Docker 时实际构建并启动（否则 SKIP） |
-| 4 | 镜像 ≤300MB、启动 ≤5s | `docker image inspect` + `/healthz` 计时（否则 SKIP） |
-| 5 | 脱敏后外发不含原始敏感值 | mock LLM 捕获全部请求体并断言不含 IP/Token/邮箱 |
-| 6 | 经验确认入库并被 RAG 命中 | 确认 → 再触发相似故障 → 断言 `rag_hits` 非空 |
-| 7 | 至少一种渠道成功送达 | 内置接收端 `/_mock/sink` 断言四渠道 payload |
-| 8 | 开源要素齐备 | LICENSE / README / CONTRIBUTING / SECURITY / CI 存在性 |
-
-单元与接口测试：`python -m pytest -q`
-
----
-
-## 目录结构
+## 项目结构
 
 ```
 app/
 ├── main.py                 # FastAPI 入口（API + 静态控制台 + 健康检查）
-├── config/                 # Pydantic 配置与常量
-├── models/                 # 事件 / 诊断 / 告警 / 经验 / 集群数据模型
-├── collectors/             # 采集适配器（base + 四个数据源）
-├── detection/              # 异常检测（rules.yaml + 阈值/基线/日志规则）
+├── config/                 # Pydantic 配置、常量、多集群加载
+├── models/                 # 事件 / 诊断 / 告警 / 经验 / 集群模型
+├── collectors/             # 采集适配器（Prometheus / ES / Jaeger / K8s）
+├── detection/              # 异常检测（rules.yaml + 阈值 / 基线 / 日志规则）
 ├── gateway/                # 数据安全网关（脱敏规则 + 分流路由 + 审计）
-├── agents/                 # 四个 Agent + 编排中枢 + 报告渲染
-├── alerting/               # 告警策略 + 多渠道通知
+├── agents/                 # 四类 Agent + 编排中枢 + 报告渲染
+├── alerting/               # 告警策略 / 聚合升级 / 多渠道通知
 ├── knowledge/              # 向量库 / RAG / 经验流转
 ├── storage/                # SQLite 仓储
 ├── api/                    # REST 路由
-├── cli/                    # 命令行工具
+├── cli/                    # 命令行工具 ops-cli
 ├── mock/                   # mock 世界（可注入故障）
 ├── services/               # 诊断闭环流水线
 └── scheduler.py            # 轮询检测调度
-frontend/                   # Vue 3 + TS 控制台（产物打包进镜像）
-deploy/                     # Dockerfile / compose / k8s 清单
+frontend/                   # Vue 3 + TS 控制台（构建产物打进镜像）
+deploy/                     # Dockerfile / docker-compose / k8s 清单 / 多集群示例
 scripts/demo.py             # 端到端验收自证
 tests/                      # pytest
 ```
 
 ---
 
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [USAGE.md](USAGE.md) | **完整使用手册**：环境依赖、四种安装方式、全部配置项、控制台/API/CLI 用法、8 个典型场景、运维与故障排查 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、代码规范、提交约定 |
+| [SECURITY.md](SECURITY.md) | 漏洞报告方式与安全边界 |
+| [.env.example](.env.example) | 全部环境变量模板，复制为 `.env` 即可用 |
+| [deploy/clusters.example.yaml](deploy/clusters.example.yaml) | 多集群配置示例 |
+
+---
+
 ## 已知边界
 
-- **本轮为骨架版**：Agent 以规则 + LLM 双路径实现，尚未做多轮推理与工具调用；链路/K8s 默认关闭
-- **向量库默认内嵌轻量实现**：经验量上万时请切 `KNOWLEDGE_BACKEND=chroma`
-- **mock 模式的通知**发往内置接收端 `/_mock/sink`，便于验收；接真实渠道只需配置对应 Webhook / SMTP
-- **授权协议**：MIT。仓库地址：https://github.com/obc19/ai-ops-agent
+- **诊断不自动处置**：只给结论与建议，重启、扩缩容等写操作需人工执行
+- **单副本运行**：进程内调度 + SQLite 单写，多副本会重复检测、重复告警、分裂知识库
+- **Agent 为单轮推理**：规则与 LLM 双路径，尚未做多轮工具调用与自主规划
+- **链路 / K8s 适配器默认关闭**：需显式开启对应开关
+- **内嵌向量库适合中小规模**：经验上万条建议切 `KNOWLEDGE_BACKEND=chroma`
+- **报告不产出 PDF**：提供 JSON 与 Markdown（`GET /api/v1/diagnostics/{id}/markdown`）
 
 ## 路线图
 
