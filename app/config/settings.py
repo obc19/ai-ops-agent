@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     kubernetes_api_url: str = ""
     kubernetes_token: str = ""
 
+    # ---- 多集群（留空则单集群，使用上面这份数据源地址）----
+    clusters_config: str = ""       # 文件路径或内联 YAML
+    default_cluster: str = "prod-cluster"
+    default_namespace: str = "prod"
+
     # ---- 可选模块 ----
     enable_trace_agent: bool = False
     enable_k8s_adapter: bool = False

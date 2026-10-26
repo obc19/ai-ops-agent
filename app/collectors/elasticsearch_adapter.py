@@ -21,8 +21,22 @@ class ElasticsearchCollector(BaseCollector):
     source = SourceType.LOG
 
     @property
+    def base_url(self) -> str:
+        return (
+            (self.sources.elasticsearch_url if self.sources else "")
+            or self.settings.elasticsearch_url
+        )
+
+    @property
+    def index(self) -> str:
+        return (
+            (self.sources.elasticsearch_index if self.sources else "")
+            or self.settings.elasticsearch_index
+        )
+
+    @property
     def configured(self) -> bool:
-        return bool(self.settings.elasticsearch_url)
+        return bool(self.base_url)
 
     async def query(self, window) -> list[BaseEvent]:
         if self.use_mock:
@@ -38,7 +52,7 @@ class ElasticsearchCollector(BaseCollector):
                     cluster=world.cluster,
                     namespace=world.namespace,
                     target=row["service"],
-                    index=self.settings.elasticsearch_index,
+                    index=self.index,
                     level=row["level"],
                     message=row["message"],
                     count=row["count"],
@@ -48,9 +62,11 @@ class ElasticsearchCollector(BaseCollector):
 
     # ---------- real ----------
     def _auth_headers(self) -> dict[str, str]:
-        if not self.settings.elasticsearch_username:
+        username = (self.sources.elasticsearch_username if self.sources else "") or             self.settings.elasticsearch_username
+        password = (self.sources.elasticsearch_password if self.sources else "") or             self.settings.elasticsearch_password
+        if not username:
             return {}
-        raw = f"{self.settings.elasticsearch_username}:{self.settings.elasticsearch_password}"
+        raw = f"{username}:{password}"
         token = base64.b64encode(raw.encode("utf-8")).decode("ascii")
         return {"Authorization": f"Basic {token}"}
 
@@ -67,8 +83,8 @@ class ElasticsearchCollector(BaseCollector):
                 }
             },
         }
-        url = f"/{self.settings.elasticsearch_index}/_search"
-        async with self._client(self.settings.elasticsearch_url) as client:
+        url = f"/{self.index}/_search"
+        async with self._client(self.base_url) as client:
             resp = await client.post(url, json=body, headers=self._auth_headers())
             resp.raise_for_status()
             payload = resp.json()
@@ -78,8 +94,8 @@ class ElasticsearchCollector(BaseCollector):
             src = hit.get("_source", {})
             events.append(
                 LogEvent(
-                    cluster=src.get("cluster", self.settings.app_name),
-                    namespace=src.get("namespace", "default"),
+                    cluster=src.get("cluster") or self.cluster_name,
+                    namespace=src.get("namespace") or self.namespace,
                     target=src.get("service") or src.get("pod") or "unknown",
                     index=hit.get("_index", ""),
                     level=str(src.get("level", "ERROR")),
@@ -91,7 +107,7 @@ class ElasticsearchCollector(BaseCollector):
         return events
 
     async def _probe(self) -> DataSourceHealth:  # pragma: no cover
-        async with self._client(self.settings.elasticsearch_url) as client:
+        async with self._client(self.base_url) as client:
             resp = await client.get("/_cluster/health", headers=self._auth_headers())
             data = resp.json() if resp.status_code == 200 else {}
             return DataSourceHealth(

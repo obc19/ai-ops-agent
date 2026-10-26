@@ -16,8 +16,22 @@ class K8sCollector(BaseCollector):
     source = SourceType.K8S
 
     @property
+    def base_url(self) -> str:
+        return (
+            (self.sources.kubernetes_api_url if self.sources else "")
+            or self.settings.kubernetes_api_url
+        )
+
+    @property
+    def token(self) -> str:
+        return (
+            (self.sources.kubernetes_token if self.sources else "")
+            or self.settings.kubernetes_token
+        )
+
+    @property
     def configured(self) -> bool:
-        return bool(self.settings.kubernetes_api_url)
+        return bool(self.base_url)
 
     @property
     def enabled(self) -> bool:
@@ -45,9 +59,9 @@ class K8sCollector(BaseCollector):
         ]
 
     async def _real(self, window) -> list[K8sEvent]:
-        headers = {"Authorization": f"Bearer {self.settings.kubernetes_token}"}
+        headers = {"Authorization": f"Bearer {self.token}"}
         events: list[K8sEvent] = []
-        async with self._client(self.settings.kubernetes_api_url) as client:
+        async with self._client(self.base_url) as client:
             resp = await client.get(
                 "/api/v1/events", params={"fieldSelector": "type!=Normal"}, headers=headers
             )
@@ -56,7 +70,7 @@ class K8sCollector(BaseCollector):
                 meta = item.get("metadata", {})
                 events.append(
                     K8sEvent(
-                        cluster=self.settings.app_name,
+                        cluster=self.cluster_name,
                         namespace=meta.get("namespace", "default"),
                         target=(item.get("involvedObject") or {}).get("name", "unknown"),
                         reason=item.get("reason", ""),
@@ -69,8 +83,8 @@ class K8sCollector(BaseCollector):
         return events
 
     async def _probe(self) -> DataSourceHealth:  # pragma: no cover
-        headers = {"Authorization": f"Bearer {self.settings.kubernetes_token}"}
-        async with self._client(self.settings.kubernetes_api_url) as client:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with self._client(self.base_url) as client:
             resp = await client.get("/version", headers=headers)
             return DataSourceHealth(
                 name=self.name,

@@ -16,8 +16,12 @@ class JaegerCollector(BaseCollector):
     source = SourceType.TRACE
 
     @property
+    def base_url(self) -> str:
+        return (self.sources.jaeger_url if self.sources else "") or self.settings.jaeger_url
+
+    @property
     def configured(self) -> bool:
-        return bool(self.settings.jaeger_url)
+        return bool(self.base_url)
 
     @property
     def enabled(self) -> bool:
@@ -50,7 +54,7 @@ class JaegerCollector(BaseCollector):
         start_us = int(window.start.timestamp() * 1_000_000)
         end_us = int(window.end.timestamp() * 1_000_000)
         events: list[TraceEvent] = []
-        async with self._client(self.settings.jaeger_url) as client:
+        async with self._client(self.base_url) as client:
             services = (await client.get("/api/services")).json().get("data") or []
             for service in services[:20]:
                 resp = await client.get(
@@ -71,7 +75,7 @@ class JaegerCollector(BaseCollector):
                     )
                     events.append(
                         TraceEvent(
-                            cluster=self.settings.app_name,
+                            cluster=self.cluster_name,
                             namespace="default",
                             target=service,
                             service=service,
@@ -86,7 +90,7 @@ class JaegerCollector(BaseCollector):
         return events
 
     async def _probe(self) -> DataSourceHealth:  # pragma: no cover
-        async with self._client(self.settings.jaeger_url) as client:
+        async with self._client(self.base_url) as client:
             resp = await client.get("/api/services")
             return DataSourceHealth(
                 name=self.name,

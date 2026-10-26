@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth
 from app.collectors import collectors_health
+from app.config.clusters import load_clusters
 from app.models.cluster import Cluster, ClusterRegistration
 from app.storage import get_store
 from app.utils.clock import utc_now
@@ -32,6 +33,29 @@ async def register_cluster(
     return cluster
 
 
+@router.get("/sources", summary="已配置集群与其数据源（凭据脱敏）")
+async def list_cluster_sources(actor: str = Depends(require_auth)) -> list[dict]:
+    result = []
+    for cluster in load_clusters():
+        sources = cluster.sources
+        result.append(
+            {
+                "name": cluster.name,
+                "namespace": cluster.namespace,
+                "enabled": cluster.enabled,
+                "sources": {
+                    "prometheus": sources.prometheus_url,
+                    "elasticsearch": sources.elasticsearch_url,
+                    "elasticsearch_index": sources.elasticsearch_index,
+                    "jaeger": sources.jaeger_url,
+                    "kubernetes": sources.kubernetes_api_url,
+                },
+                "configured": sources.configured_sources,
+            }
+        )
+    return result
+
+
 @router.get("", response_model=list[Cluster], summary="集群列表")
 async def list_clusters(actor: str = Depends(require_auth)) -> list[Cluster]:
     return get_store().list_clusters()
@@ -43,7 +67,7 @@ async def cluster_health(name: str, actor: str = Depends(require_auth)) -> dict:
     cluster = store.get_cluster_by_name(name)
     if cluster is None:
         raise HTTPException(status_code=404, detail=f"集群不存在：{name}")
-    healths = await collectors_health()
+    healths = await collectors_health(cluster=name)
     healthy = all(h.reachable for h in healths if h.configured) if healths else False
     cluster.healthy = healthy
     cluster.last_seen_at = utc_now()

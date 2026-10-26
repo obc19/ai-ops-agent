@@ -131,7 +131,10 @@ curl -X POST http://127.0.0.1:8080/_mock/reset
 | `DETECT_INTERVAL` | `10` | 轮询周期（秒），决定检测延迟 |
 | `RETENTION_DAYS` | `30` | 告警/诊断/审计保留天数（经验不自动删） |
 | `ALERT_GROUP_WINDOW` / `ALERT_COOLDOWN` | `300` / `300` | 聚合窗口与通知冷却 |
-| `AUTH_TOKEN` | 空 | 配置后所有 API 需 `Authorization: Bearer <token>` |
+| `CLUSTERS_CONFIG` | 空 | 多集群 YAML（文件路径或内联），留空为单集群，示例见 `deploy/clusters.example.yaml` |
+| `DEFAULT_CLUSTER` / `DEFAULT_NAMESPACE` | `prod-cluster` / `prod` | 单集群模式下的默认归属 |
+| `AUTH_TOKEN` | 空 | 管理员 Token（配置后所有 API 需 `Authorization: Bearer <token>`） |
+| `OPERATOR_TOKEN` / `VIEWER_TOKEN` | 空 | operator（可执行）/ viewer（只读）角色 Token |
 
 ---
 
@@ -143,14 +146,16 @@ Base：`/api/v1`，交互式文档：`/docs`
 | --- | --- | --- |
 | GET | `/overview` | 全局总览（统计、数据源健康、运行模式） |
 | POST / GET | `/clusters` | 注册集群 / 集群列表 |
+| GET | `/clusters/sources` | 已配置集群与其数据源（多集群） |
 | GET | `/clusters/{name}/health` | 数据源健康度 |
+| POST | `/ingest/alertmanager` | 接收 Alertmanager Webhook，直接进入诊断闭环 |
 | POST | `/diagnostics` | 手工触发一次诊断（也可用于外部告警接入） |
 | POST | `/diagnostics/detect` | 立即执行一轮采集 + 检测 + 诊断 |
 | GET | `/diagnostics` / `/diagnostics/{id}` | 诊断列表 / 详情（含依据与 RAG 命中） |
 | GET | `/diagnostics/{id}/markdown` | 导出 Markdown 报告 |
 | GET | `/alerts` | 告警列表（按级别/状态/集群过滤） |
 | GET | `/alerts/{id}/markdown` | 告警 Markdown |
-| POST | `/alerts/{id}/confirm` / `resolve` / `renotify` | 确认 / 关闭 / 重发 |
+| POST | `/alerts/{id}/confirm` / `resolve` / `reopen` / `renotify` | 确认 / 关闭 / 复发重开 / 重发 |
 | GET | `/knowledge` / `/knowledge/stats` / `/knowledge/search` | 经验列表 / 统计 / 语义检索 |
 | POST | `/knowledge` | 由诊断报告生成经验草稿 |
 | POST | `/knowledge/{id}/confirm` | 人工确认入库（`confirmed_by` 必填） |

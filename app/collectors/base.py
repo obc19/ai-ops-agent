@@ -21,8 +21,33 @@ class BaseCollector(ABC):
     name: str = "base"
     source: SourceType = SourceType.METRIC
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self, settings: Settings | None = None, cluster=None
+    ) -> None:
         self.settings = settings or get_settings()
+        if cluster is None:
+            from app.config.clusters import default_cluster
+
+            cluster = default_cluster(self.settings)
+        self.cluster = cluster
+
+    # ---------- 集群上下文 ----------
+    @property
+    def cluster_name(self) -> str:
+        return getattr(self.cluster, "name", "default")
+
+    @property
+    def namespace(self) -> str:
+        return getattr(self.cluster, "namespace", "default")
+
+    @property
+    def sources(self):
+        return getattr(self.cluster, "sources", None)
+
+    @property
+    def label(self) -> str:
+        """多集群下用于区分同名适配器。"""
+        return f"{self.name}@{self.cluster_name}"
 
     # ---------- 子类实现 ----------
     @property
@@ -45,18 +70,18 @@ class BaseCollector(ABC):
     async def health_check(self) -> DataSourceHealth:
         if not self.configured and not self.settings.mock_mode:
             return DataSourceHealth(
-                name=self.name, configured=False, reachable=False, detail="未配置，已跳过"
+                name=self.label, configured=False, reachable=False, detail="未配置，已跳过"
             )
         if self.use_mock:
             return DataSourceHealth(
-                name=self.name, configured=self.configured, reachable=True, detail="mock 数据源"
+                name=self.label, configured=self.configured, reachable=True, detail="mock 数据源"
             )
         try:
             return await self._probe()
         except Exception as exc:  # noqa: BLE001 - 探活失败不应中断主流程
             logger.warning("%s 探活失败：%s", self.name, exc)
             return DataSourceHealth(
-                name=self.name,
+                name=self.label,
                 configured=True,
                 reachable=False,
                 detail=str(exc)[:200],

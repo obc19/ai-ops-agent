@@ -22,19 +22,30 @@ _REGISTRY: dict[str, type[BaseCollector]] = {
 
 
 def build_collectors(settings: Settings | None = None) -> list[BaseCollector]:
+    """按集群实例化适配器：多集群配置下每个集群各一组。"""
+    from app.config.clusters import load_clusters
+
     settings = settings or get_settings()
+    clusters = load_clusters(settings)
+    if settings.mock_mode:
+        # mock 世界只模拟一个集群，多集群留给真实环境验证
+        clusters = clusters[:1]
+
     collectors: list[BaseCollector] = []
-    for name, cls in _REGISTRY.items():
-        collector = cls(settings)
-        enabled_attr = getattr(collector, "enabled", True)
-        if not enabled_attr:
-            logger.debug("适配器 %s 未启用，跳过", name)
+    for cluster in clusters:
+        if not cluster.enabled:
+            logger.info("集群 %s 已禁用，跳过", cluster.name)
             continue
-        if not collector.configured and not settings.mock_mode:
-            logger.info("适配器 %s 未配置地址，跳过", name)
-            continue
-        collectors.append(collector)
-    logger.info("启用采集适配器：%s", [c.name for c in collectors])
+        for name, cls in _REGISTRY.items():
+            collector = cls(settings, cluster)
+            if not getattr(collector, "enabled", True):
+                logger.debug("适配器 %s@%s 未启用，跳过", name, cluster.name)
+                continue
+            if not collector.configured and not settings.mock_mode:
+                logger.info("适配器 %s@%s 未配置地址，跳过", name, cluster.name)
+                continue
+            collectors.append(collector)
+    logger.info("启用采集适配器：%s", [c.label for c in collectors])
     return collectors
 
 
@@ -50,8 +61,12 @@ async def collect_all(window, settings: Settings | None = None) -> list[BaseEven
     return events
 
 
-async def collectors_health(settings: Settings | None = None) -> list[DataSourceHealth]:
+async def collectors_health(
+    settings: Settings | None = None, cluster: str | None = None
+) -> list[DataSourceHealth]:
     import asyncio
 
     collectors = build_collectors(settings)
+    if cluster:
+        collectors = [c for c in collectors if c.cluster_name == cluster]
     return list(await asyncio.gather(*(c.health_check() for c in collectors)))

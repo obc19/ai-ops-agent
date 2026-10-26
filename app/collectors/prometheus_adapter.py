@@ -19,8 +19,12 @@ class PrometheusCollector(BaseCollector):
     source = SourceType.METRIC
 
     @property
+    def base_url(self) -> str:
+        return (self.sources.prometheus_url if self.sources else "") or self.settings.prometheus_url
+
+    @property
     def configured(self) -> bool:
-        return bool(self.settings.prometheus_url)
+        return bool(self.base_url)
 
     async def query(self, window) -> list[BaseEvent]:
         if self.use_mock:
@@ -53,7 +57,7 @@ class PrometheusCollector(BaseCollector):
         end = window.end.timestamp()
         step = max(int((end - start) / 24), 15)
 
-        async with self._client(self.settings.prometheus_url) as client:
+        async with self._client(self.base_url) as client:
             for metric, spec in METRIC_QUERIES.items():
                 resp = await client.get(
                     "/api/v1/query_range",
@@ -76,8 +80,8 @@ class PrometheusCollector(BaseCollector):
                         continue
                     events.append(
                         MetricEvent(
-                            cluster=self.settings.app_name,
-                            namespace=labels.get("namespace", "default"),
+                            cluster=self.cluster_name,
+                            namespace=labels.get("namespace") or self.namespace,
                             target=target,
                             metric=metric,
                             unit=spec["unit"],
@@ -90,7 +94,7 @@ class PrometheusCollector(BaseCollector):
         return events
 
     async def _probe(self) -> DataSourceHealth:  # pragma: no cover
-        async with self._client(self.settings.prometheus_url) as client:
+        async with self._client(self.base_url) as client:
             resp = await client.get("/-/healthy")
             return DataSourceHealth(
                 name=self.name,
