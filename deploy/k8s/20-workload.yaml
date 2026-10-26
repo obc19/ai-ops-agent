@@ -1,0 +1,133 @@
+# 单副本工作负载：采集调度与 SQLite 都在进程内，多副本会重复检测/重复告警
+# Service 三种端口统一走 8080：Dashboard 静态页与 /api 同源，无需额外 Web 服务器
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-ops-agent
+  namespace: aiops
+  labels:
+    app.kubernetes.io/name: ai-ops-agent
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # SQLite 挂在 ReadWriteOnce 卷上，滚动更新会出现两个 Pod 抢同一个卷 → 先停后起
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-ops-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-ops-agent
+    spec:
+      serviceAccountName: ai-ops-agent
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/obc19/ai-ops-agent:0.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DATA_DIR
+              value: /data
+            - name: MOCK_MODE
+              value: "false"
+            - name: ENABLE_K8S_ADAPTER
+              value: "true"
+            - name: LOG_LEVEL
+              value: INFO
+            - name: DETECT_INTERVAL
+              value: "10"
+            - name: DEFAULT_CLUSTER
+              value: prod-cluster
+            - name: DEFAULT_NAMESPACE
+              value: prod
+            - name: CLUSTERS_CONFIG
+              value: /etc/aiops/clusters.yaml
+            # 鉴权与外部凭据从 Secret 注入（保存解压后只在内存中）
+            - name: OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-ops-agent-secrets
+                  key: operator-token
+            - name: VIEWER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-ops-agent-secrets
+                  key: viewer-token
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-ops-agent-secrets
+                  key: llm-api-key
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: clusters
+              mountPath: /etc/aiops
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ai-ops-agent-data
+        - name: clusters
+          configMap:
+            name: ai-ops-agent-clusters
+      terminationGracePeriodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-ops-agent
+  namespace: aiops
+  labels:
+    app.kubernetes.io/name: ai-ops-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-ops-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

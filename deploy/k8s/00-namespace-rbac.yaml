@@ -1,0 +1,42 @@
+# 命名空间与只读 RBAC：本工具只需要读事件/列表，不需要任何写权限
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aiops
+  labels:
+    app.kubernetes.io/name: ai-ops-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-ops-agent
+  namespace: aiops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ai-ops-agent-reader
+rules:
+  - apiGroups: [""]
+    resources: ["events", "pods", "nodes", "namespaces", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  # 装了 metrics-server 时可读 Pod/Node 资源用量（可选）
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ai-ops-agent-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ai-ops-agent-reader
+subjects:
+  - kind: ServiceAccount
+    name: ai-ops-agent
+    namespace: aiops

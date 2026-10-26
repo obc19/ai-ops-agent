@@ -1,0 +1,31 @@
+# 多集群数据源清单 + 数据卷
+# 每个集群一组只读地址；同一命名空间内的服务可用 *.svc 短域名
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-ops-agent-clusters
+  namespace: aiops
+data:
+  clusters.yaml: |
+    clusters:
+      - name: prod-cluster
+        namespace: prod
+        prometheus_url: http://prometheus.monitoring.svc:9090
+        elasticsearch_url: http://elasticsearch.logging.svc:9200
+        elasticsearch_index: app-logs-*
+        jaeger_url: http://jaeger-query.monitoring.svc:16686
+        # 留空 = 使用本 Pod 的 ServiceAccount 直连 kubernetes.default.svc
+        kubernetes_api_url: ""
+---
+# SQLite / 向量库 / 审计日志都落在 /data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-ops-agent-data
+  namespace: aiops
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: standard

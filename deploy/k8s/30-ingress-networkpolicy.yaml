@@ -1,0 +1,66 @@
+# 对外暴露：Dashboard 与 API 同一个端口，只需要一条规则
+# 没有 Ingress Controller 时也可以直接 kubectl port-forward svc/ai-ops-agent 8080:80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-ops-agent
+  namespace: aiops
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [aiops.example.com]
+      secretName: aiops-tls
+  rules:
+    - host: aiops.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-ops-agent
+                port:
+                  name: http
+---
+# 只放行 Ingress 入站 + 必要的出站，其余默认拒绝
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-ops-agent
+  namespace: aiops
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-ops-agent
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # 集群内数据源：Prometheus / ES / Jaeger
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - {port: 9090, protocol: TCP}
+        - {port: 9200, protocol: TCP}
+        - {port: 16686, protocol: TCP}
+    # apiserver 与外部 LLM / 告警渠道
+    - ports:
+        - {port: 6443, protocol: TCP}
+        - {port: 443, protocol: TCP}
+        - {port: 80, protocol: TCP}
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
