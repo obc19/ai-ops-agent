@@ -100,12 +100,11 @@ K8s events ┘                                                    ▼
 | Elasticsearch（ELK） | 日志检索（5 条日志规则） | `ELASTICSEARCH_URL` / `ELASTICSEARCH_INDEX` |
 | Jaeger | 链路查询 | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
 | Kubernetes apiserver | 集群事件 | K8s 内运行可自动发现；否则 `KUBERNETES_API_URL` |
-| 外部 LLM（DeepSeek 等 OpenAI 兼容接口） | 非敏感数据分析 | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` |
-| 本地模型（Ollama） | 敏感数据分析 | `LOCAL_MODEL_URL` + `LOCAL_MODEL_ENABLED=true` |
+| 外部 LLM（DeepSeek 等 OpenAI 兼容接口） | 根因归纳（全部诊断） | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
 | 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.5](#45-告警渠道) |
 
-> **不配 LLM 也能用**：Agent 会走规则引擎给出结论，报告的「置信度」会相应降低。不配 embedding 时用内置哈希向量兜底，RAG 仍可用但语义精度有限。
+> **不配 LLM 也能用，但要知道差别**：Agent 全部走规则引擎给出结论，报告「置信度」会降低，末尾标注 `LLM 参与：否`，根因来自固定模板而非模型归纳。不配 embedding 时用内置哈希向量兜底，RAG 仍可用但语义精度有限。
 
 ---
 
@@ -288,11 +287,9 @@ clusters:
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `LLM_BASE_URL` / `LLM_MODEL` | DeepSeek / `deepseek-chat` | 非敏感数据使用的外部模型（OpenAI 兼容接口） |
-| `LLM_API_KEY` | 空 | 留空则不调用 LLM，Agent 走规则结论 |
+| `LLM_BASE_URL` / `LLM_MODEL` | DeepSeek / `deepseek-chat` | 诊断使用的模型（OpenAI 兼容接口），敏感数据脱敏后同样经此外发 |
+| `LLM_API_KEY` | 空 | 留空则不调用 LLM，Agent 全部走规则结论 |
 | `LLM_TIMEOUT` | `20` | 单次 LLM 超时（秒） |
-| `LOCAL_MODEL_URL` / `LOCAL_MODEL_NAME` | 空 / `qwen2.5:7b` | 敏感数据使用的本地模型（Ollama） |
-| `LOCAL_MODEL_ENABLED` | `false` | 开启后敏感数据走本地模型，不出内网 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` | 空 | OpenAI 兼容 embedding；留空用本地哈希向量兜底 |
 | `EMBEDDING_DIM` | `8` | 兜底哈希向量维度 |
 | `KNOWLEDGE_BACKEND` | `simple` | `simple`（内嵌）/ `chroma` / `faiss` |
@@ -550,15 +547,28 @@ curl -s -X POST -H "X-Auth-Token: op-token-xxx" \
   http://127.0.0.1:8080/api/v1/alerts/<告警ID>/confirm
 ```
 
-### 6.8 敏感数据走本地模型
+### 6.8 敏感数据的外发行为
+
+本项目不再内置本地模型通道，全部诊断请求都走外部 API。脱敏网关是唯一出口，行为固定为：
+
+| 情形 | 行为 |
+| --- | --- |
+| 内容未命中敏感规则 | 原文外发 |
+| 内容命中敏感规则 | **先脱敏再外发**，审计记录 `channel=external-redacted` 与命中的规则明细 |
+| 脱敏引擎异常 | 拦截（fail-closed），不外发，写审计 + 触发 P1 自监控告警 |
+| 脱敏后二次扫描仍命中 | 拦截（fail-closed），同上 |
+
+验证方式（每一步都可查）：
 
 ```bash
-export LOCAL_MODEL_URL=http://ollama.llm.svc:11434
-export LOCAL_MODEL_NAME=qwen2.5:7b
-export LOCAL_MODEL_ENABLED=true
+# 1) 看外发通道与命中的敏感规则
+curl -s "http://127.0.0.1:8080/api/v1/audit?egress_only=true&limit=10" | python3 -m json.tool
+# 2) 看是否发生过拦截
+curl -s "http://127.0.0.1:8080/api/v1/audit?action=llm_egress_blocked&limit=10"
 ```
 
-脱敏网关会先判定内容敏感度：敏感片段送本地 Ollama，非敏感走外部 LLM；判定与拦截结果都写入审计（`GET /api/v1/audit?egress_only=true`）。
+> 需要「敏感数据完全不出网」的组织，应改为在**内网自建一个 OpenAI 兼容端点**（如 vLLM + Qwen），
+> 把 `LLM_BASE_URL` 指向它即可，代码无需改动——这与"本地模型"是同一件事，只是不再作为独立配置项存在。
 
 ---
 

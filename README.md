@@ -157,8 +157,7 @@ ops-cli alerts && ops-cli report <诊断ID>
 | `PORT` / `DATA_DIR` | `8080` / `./data` | 服务端口与数据目录（SQLite、向量库、审计） |
 | `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过 |
 | `ENABLE_TRACE_AGENT` / `ENABLE_K8S_ADAPTER` | `false` | 链路 / K8s 适配器开关 |
-| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | DeepSeek | 非敏感数据的外部模型，不配则走规则 |
-| `LOCAL_MODEL_URL` / `LOCAL_MODEL_ENABLED` | 空 / `false` | 敏感数据使用的本地模型（Ollama） |
+| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | DeepSeek | 诊断使用的模型（OpenAI 兼容），不配则全部走规则 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 空 | 经验向量化，留空用哈希向量兜底 |
 | `KNOWLEDGE_BACKEND` | `simple` | `simple` / `chroma` / `faiss` |
 | `DETECT_INTERVAL` | `10` | 轮询周期（秒），决定检测延迟 |
