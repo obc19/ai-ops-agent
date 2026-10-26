@@ -3,12 +3,14 @@
 **轻量级 AI 智能体故障排查工具**：统一接入指标、日志、链路与集群事件，由多个诊断 Agent 协同定位根因，自动分级告警，并把人工确认过的经验沉淀进本地知识库，通过 RAG 越用越准。
 
 <p>
-<img alt="version" src="https://img.shields.io/badge/version-0.2.0-blue">
+<img alt="release" src="https://img.shields.io/github/v/release/obc19/ai-ops-agent">
+<img alt="ci" src="https://img.shields.io/github/actions/workflow/status/obc19/ai-ops-agent/ci.yml?branch=main">
 <img alt="python" src="https://img.shields.io/badge/python-3.11%2B-3776ab">
 <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
-- 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)　｜　镜像：`ghcr.io/obc19/ai-ops-agent`
+- 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.2.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
 - 完整使用手册：[USAGE.md](USAGE.md)
 
 ---
