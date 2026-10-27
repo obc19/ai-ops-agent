@@ -254,8 +254,11 @@ npm run build   # 构建产物，之后由 FastAPI 在 / 直接托管
 装成命令后用 `ops-cli` 代替 `python -m app.cli.ops_cli`：
 
 ```bash
-pip install -e .
+pip install -e .        # 用 editable 安装，CLI 才能找到仓库里的 config/
 ```
+
+> `ops-cli` 需要读取 `config/`。用 `pip install .`（非 editable）装到 site-packages 时，
+> 请显式指定配置目录：`export CONFIG_DIR=/path/to/aiops-agent/config`。
 
 ### 3.5 验证模型确实连通（3 秒，不用等诊断跑完）
 
