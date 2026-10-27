@@ -12,6 +12,7 @@ data
 logs
 docs
 tests
+tools
 node_modules
 frontend/node_modules
 frontend/dist

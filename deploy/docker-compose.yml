@@ -50,8 +50,9 @@ services:
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
     volumes:
       - ./data:/data
-      # 多集群配置：把 deploy/clusters.example.yaml 复制为 deploy/clusters.yaml 后取消注释
-      # - ./clusters.yaml:/app/deploy/clusters.yaml:ro
+      # 全部配置来自仓库根目录的 config/，整目录只读挂载到约定路径
+      # 改完配置重启容器即可生效（进程不监听文件变更）
+      - ../config:/etc/aiops:ro
     healthcheck:
       test:
         - CMD

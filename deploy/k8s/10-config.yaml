@@ -1,21 +1,23 @@
-# 多集群数据源清单 + 数据卷
-# 每个集群一组只读地址；同一命名空间内的服务可用 *.svc 短域名
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ai-ops-agent-clusters
-  namespace: aiops
-data:
-  clusters.yaml: |
-    clusters:
-      - name: prod-cluster
-        namespace: prod
-        prometheus_url: http://prometheus.monitoring.svc:9090
-        elasticsearch_url: http://elasticsearch.logging.svc:9200
-        elasticsearch_index: app-logs-*
-        jaeger_url: http://jaeger-query.monitoring.svc:16686
-        # 留空 = 使用本 Pod 的 ServiceAccount 直连 kubernetes.default.svc
-        kubernetes_api_url: ""
+# 配置与数据卷
+#
+# 所有运行时配置都来自仓库根目录的 config/，在 K8s 里用一个 ConfigMap 整目录挂载：
+#
+#   kubectl -n aiops create configmap ai-ops-agent-config \
+#     --from-file=config/aiops.yaml \
+#     --from-file=config/rules-detection.yaml \
+#     --from-file=config/rules-desensitize.yaml \
+#     --from-file=config/clusters.yaml          # 可选，多集群时才有
+#
+#   # 改了配置后刷新（Pod 不会自动重载文件，需重启）
+#   kubectl -n aiops create configmap ai-ops-agent-config --from-file=config/ ... --dry-run=client -o yaml \
+#     | kubectl apply -f -
+#   kubectl -n aiops rollout restart deploy/ai-ops-agent
+#
+# 为什么不在清单里内联配置：内联等于把仓库 config/ 复制一份，两边会漂移。
+# 用 --from-file 生成，仓库里的 config/ 始终是唯一事实来源。
+#
+# 未创建该 ConfigMap 也能启动：镜像内自带一份默认配置（/app/config），
+# 此时 CONFIG_DIR 指向的目录为空，程序自动回落到内置副本。
 ---
 # SQLite / 向量库 / 审计日志都落在 /data
 apiVersion: v1

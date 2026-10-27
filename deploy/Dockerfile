@@ -18,14 +18,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data \
     PORT=8080
 
+# 配置发现顺序：CONFIG_FILE → CONFIG_DIR/aiops.yaml → /etc/aiops/aiops.yaml → /app/config/aiops.yaml
+# 所以 -v $(pwd)/config:/etc/aiops:ro 挂上去就会自动生效，不用额外加环境变量
+
 WORKDIR /app
 
-COPY requirements.txt ./
+# 依赖清单在 deploy/ 下，构建时拷进来用完即删，不留在运行镜像里
+COPY deploy/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt \
+    && rm -f requirements.txt \
     && useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data && chown -R appuser:appuser /data /app
 
 COPY app ./app
+# 配置内置一份默认值（/app/config），运行时用 -v 挂载到 /etc/aiops 即可整体覆盖
+COPY config ./config
 COPY --from=frontend-build /build/dist ./frontend/dist
 
 USER appuser
