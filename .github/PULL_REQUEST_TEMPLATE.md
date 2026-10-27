@@ -9,7 +9,7 @@
 ## 验证方式
 
 - [ ] `python -m pytest -q` 通过
-- [ ] `python scripts/demo.py` 无新增 FAIL
+- [ ] `python tools/demo.py` 无新增 FAIL
 - [ ] 手工验证步骤：
 
 ## 影响面

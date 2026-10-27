@@ -6,7 +6,7 @@ PORT ?= 8080
 .PHONY: help install dev test demo lint build frontend compose-up compose-down clean
 
 help:
-	@echo "install      安装后端依赖（pip install -r requirements.txt）"
+	@echo "install      安装后端依赖（pip install -r deploy/requirements.txt）"
 	@echo "dev          本地启动服务（mock 模式，端口 $(PORT)）"
 	@echo "test         运行单元测试"
 	@echo "demo         运行端到端验收自证脚本"
@@ -17,7 +17,7 @@ help:
 	@echo "clean        清理运行时数据与构建产物"
 
 install:
-	$(PY) -m pip install -r requirements.txt
+	$(PY) -m pip install -r deploy/requirements.txt
 
 dev:
 	MOCK_MODE=true PORT=$(PORT) $(PY) -m app.main
@@ -26,7 +26,7 @@ test:
 	$(PY) -m pytest -q
 
 demo:
-	$(PY) scripts/demo.py
+	$(PY) tools/demo.py
 
 build:
 	cd frontend && npm install && npm run build
@@ -35,7 +35,7 @@ frontend:
 	cd frontend && npm run dev
 
 compose-up:
-	cd deploy && docker compose up -d --build
+	cd deploy && docker compose --env-file ../.env up -d --build
 
 compose-down:
 	cd deploy && docker compose down
