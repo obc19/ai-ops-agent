@@ -1,4 +1,8 @@
-"""全局配置：全部通过环境变量注入，不改镜像即可调整行为。"""
+"""全局配置：配置文件（YAML）+ 环境变量双通道，改行为无需改代码或重建镜像。
+
+优先级：构造参数 > 环境变量 > .env > YAML 配置文件 > 代码默认值。
+YAML 是主力（可整目录挂载），环境变量用于临时覆盖单项。
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,13 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.config.yaml_source import (
+    DEFAULT_CONFIG_DIR,
+    YamlConfigSource,
+    load_config_file,
+    resolve_config_file,
+)
 
 
 class Settings(BaseSettings):
@@ -19,9 +30,14 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    # ---- 配置文件本身 ----
+    # 留空则按 CONFIG_FILE → CONFIG_DIR/aiops.yaml → /etc/aiops/aiops.yaml → <项目>/config/aiops.yaml 探测
+    config_dir: str = ""        # 配置目录（挂载点），规则文件相对它解析
+    config_file: str = ""       # 主配置文件路径，指定后优先于 config_dir
+
     # ---- 运行模式 ----
     app_name: str = "ai-ops-agent"
-    version: str = "0.3.0"
+    version: str = "0.4.0"
     mock_mode: bool = True
     host: str = "0.0.0.0"
     port: int = 8080
@@ -49,6 +65,10 @@ class Settings(BaseSettings):
     clusters_config: str = ""       # 文件路径或内联 YAML
     default_cluster: str = "prod-cluster"
     default_namespace: str = "prod"
+
+    # ---- 规则文件（留空则在配置目录里按默认文件名探测）----
+    detection_rules: str = ""       # 默认 rules-detection.yaml
+    desensitize_rules: str = ""     # 默认 rules-desensitize.yaml
 
     # ---- 可选模块 ----
     enable_trace_agent: bool = False
@@ -112,10 +132,63 @@ class Settings(BaseSettings):
         value.mkdir(parents=True, exist_ok=True)
         return value
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        """把 YAML 配置文件插到环境变量之后、默认值之前。"""
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSource(settings_cls, load_config_file()),
+            file_secret_settings,
+        )
+
     # ---- 派生属性 ----
     @property
     def auth_enabled(self) -> bool:
         return bool(self.auth_token or self.operator_token or self.viewer_token)
+
+    @property
+    def config_root(self) -> Path:
+        """配置目录：显式 CONFIG_DIR > 挂载约定目录 /etc/aiops > 配置文件所在目录 > 内置 config/。
+
+        即使挂载目录里只放了规则文件、没放 aiops.yaml，规则也优先从挂载目录读。
+        """
+        if self.config_dir:
+            return Path(self.config_dir).expanduser()
+        mounted = Path(DEFAULT_CONFIG_DIR)
+        if mounted.is_dir():
+            return mounted
+        found = resolve_config_file(self.config_file)
+        if found is not None:
+            return found.parent
+        from app.config.constants import PROJECT_ROOT
+
+        return PROJECT_ROOT / "config"
+
+    def _resolve_rules(self, explicit: str, filename: str) -> Path:
+        """规则文件解析：显式路径 → 挂载目录 → 镜像内置目录。"""
+        candidates: list[Path] = []
+        if explicit:
+            raw = Path(explicit).expanduser()
+            candidates.append(raw if raw.is_absolute() else self.config_root / raw)
+        candidates.append(self.config_root / filename)
+        from app.config.constants import PROJECT_ROOT
+
+        bundled = PROJECT_ROOT / "config" / filename
+        if bundled not in candidates:
+            candidates.append(bundled)
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return candidates[0]
 
     @property
     def llm_enabled(self) -> bool:
@@ -148,9 +221,19 @@ class Settings(BaseSettings):
 
     @property
     def desensitize_rules_path(self) -> Path:
-        from app.config.constants import PROJECT_ROOT
+        return self._resolve_rules(self.desensitize_rules, "rules-desensitize.yaml")
 
-        return PROJECT_ROOT / "app" / "gateway" / "rules.yaml"
+    @property
+    def detection_rules_path(self) -> Path:
+        return self._resolve_rules(self.detection_rules, "rules-detection.yaml")
+
+    @property
+    def clusters_file(self) -> Path | None:
+        """未显式配置 clusters_config 时，自动使用配置目录下的 clusters.yaml（存在才算）。"""
+        if self.clusters_config.strip():
+            return None
+        candidate = self.config_root / "clusters.yaml"
+        return candidate if candidate.is_file() else None
 
     @property
     def db_path(self) -> Path:

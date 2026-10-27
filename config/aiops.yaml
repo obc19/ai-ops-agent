@@ -1,0 +1,110 @@
+# =============================================================================
+# ai-ops-agent 主配置文件
+# -----------------------------------------------------------------------------
+# 用法：
+#   容器：docker run -v $(pwd)/config:/etc/aiops:ro ...
+#   本地：把本文件放在仓库根 config/ 下（默认就在那），或设置 CONFIG_FILE=/path/aiops.yaml
+#
+# 优先级：构造函数参数 > 环境变量 > .env > 本文件 > 代码默认值
+# 也就是说：这里写的是"常态配置"，临时改某一项仍然可以用环境变量覆盖，
+# 例如 `-e LLM_API_KEY=sk-xxx` 会盖掉下面的 llm.api_key。
+#
+# 字段名规则：分区里的短名映射到 Settings 字段（llm.base_url → LLM_BASE_URL），
+# 未做映射的分区（runtime / sources / clusters / modules / auth / alerting）
+# 直接使用字段原名，等价于同名大写环境变量。
+# =============================================================================
+
+# ---- 运行模式 ----
+runtime:
+  mock_mode: true            # true = 内置 mock 数据源，不接任何外部系统即可跑通全链路
+  host: 0.0.0.0
+  port: 8080
+  log_level: INFO            # DEBUG / INFO / WARNING / ERROR
+  data_dir: ./data           # SQLite / 向量库 / 审计日志目录；容器内由 DATA_DIR=/data 覆盖
+
+# ---- 外部数据源（未配置的适配器自动跳过）----
+sources:
+  prometheus_url: ""
+  elasticsearch_url: ""
+  elasticsearch_index: app-logs-*
+  elasticsearch_username: ""
+  elasticsearch_password: ""
+  jaeger_url: ""
+  kubernetes_api_url: ""     # 集群内留空 = 自动使用 ServiceAccount 直连 kubernetes.default.svc
+  kubernetes_token: ""
+  kubernetes_ca_file: ""
+  kubernetes_token_file: ""
+  tls_verify: true           # 数据源用自签证书时置 false（仅限可信内网）
+
+# ---- 多集群 ----
+clusters:
+  # 集群清单路径在下面 rules.clusters 配置；留空时若本目录存在 clusters.yaml 会自动加载。
+  default_cluster: prod-cluster
+  default_namespace: prod
+
+# ---- 可选模块 ----
+modules:
+  enable_trace_agent: false
+  enable_k8s_adapter: false
+
+# ---- 大模型（不配 api_key = 规则模式，控制台会红条提示）----
+llm:
+  base_url: https://api.deepseek.com/v1
+  model: deepseek-chat
+  api_key: ""                # 建议用环境变量注入：-e LLM_API_KEY=sk-xxx
+  timeout: 20
+
+# ---- Embedding（留空则用内置哈希向量兜底，RAG 仍可用）----
+embedding:
+  base_url: ""
+  model: ""
+  api_key: ""
+  dim: 8
+
+# ---- 知识库 ----
+knowledge:
+  backend: simple            # simple / chroma / faiss
+  dedup_threshold: 0.92
+  top_k: 3
+  min_score: 0.15            # RAG 检索最低相似度
+
+# ---- 检测与告警节流 ----
+detection:
+  interval: 10               # 轮询周期（秒），决定故障发现延迟
+  retention_days: 30
+  alert_group_window: 300    # 同对象同指标聚合窗口（秒）
+  alert_cooldown: 300        # 冷却期（秒）
+
+# ---- 规则文件（相对本文件所在目录；也可写绝对路径）----
+rules:
+  detection: rules-detection.yaml
+  desensitize: rules-desensitize.yaml
+  clusters: ""               # 留空 = 自动用同目录 clusters.yaml（若存在）
+
+# ---- Agent 超时预算（保证端到端 ≤60s）----
+agent:
+  timeout: 12                # 单 Agent 上限（秒）
+  diagnosis_budget: 45       # 单次诊断总预算（秒）
+
+# ---- 鉴权（三者都不配 = 本地体验模式，全部放行）----
+auth:
+  auth_token: ""             # admin：全部权限
+  operator_token: ""         # operator：触发诊断、确认/关闭告警
+  viewer_token: ""           # viewer：只读
+
+# ---- 告警渠道 ----
+alerting:
+  alert_channels: feishu,dingtalk,email,webhook
+  feishu_webhook: ""
+  feishu_secret: ""          # 飞书机器人「加签」密钥
+  dingtalk_webhook: ""
+  dingtalk_secret: ""
+  alert_webhook_url: ""
+  smtp_host: ""
+  smtp_port: 465
+  smtp_user: ""
+  smtp_password: ""
+  smtp_use_tls: true
+  alert_email_from: ""
+  alert_email_to: ""
+  mock_sink_base: ""         # mock 模式下内置接收端地址，留空跟随运行端口

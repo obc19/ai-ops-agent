@@ -90,11 +90,16 @@ def _read_yaml(raw: str) -> dict:
 
 def load_clusters(settings: Settings | None = None) -> list[ClusterConfig]:
     cfg = settings or get_settings()
-    if not cfg.clusters_config.strip():
-        return [default_cluster(cfg)]
+    raw = cfg.clusters_config.strip()
+    if not raw:
+        # 未显式配置时，配置目录下的 clusters.yaml 存在即生效（挂载即可用）
+        auto = cfg.clusters_file
+        if auto is None:
+            return [default_cluster(cfg)]
+        raw = str(auto)
 
     try:
-        payload = _read_yaml(cfg.clusters_config)
+        payload = _read_yaml(raw)
     except (OSError, yaml.YAMLError) as exc:
         logger.error("多集群配置解析失败，回退单集群：%s", exc)
         return [default_cluster(cfg)]

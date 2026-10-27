@@ -15,15 +15,21 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_RULES_PATH = Path(__file__).with_name("rules.yaml")
 MAX_ANOMALIES = 30
+
+
+def _default_rules_path() -> Path:
+    """规则文件来自配置目录（可挂载），不再写死在代码包里。"""
+    from app.config.settings import get_settings
+
+    return get_settings().detection_rules_path
 
 
 class DetectionEngine:
     """无状态检测引擎，规则来自 YAML，可在运行时热重载。"""
 
     def __init__(self, rules_path: Path | None = None) -> None:
-        self.rules_path = rules_path or DEFAULT_RULES_PATH
+        self.rules_path = rules_path or _default_rules_path()
         self._rules: dict[str, Any] = {}
         self.reload()
 
