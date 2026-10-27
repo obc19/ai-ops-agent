@@ -10,8 +10,8 @@
 </p>
 
 - 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
-- 镜像：`ghcr.io/obc19/ai-ops-agent:0.3.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
-- 完整使用手册：[USAGE.md](USAGE.md)
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.4.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
+- 完整使用手册：[docs/USAGE.md](docs/USAGE.md)
 
 ---
 
@@ -105,12 +105,13 @@ Prometheus   Elasticsearch   Jaeger   Kubernetes
 
 没有它，后面几步照样能跑，但你看到的是规则模板，不是 AI 分析。
 
+密钥走环境变量（不进文件、不进镜像），其余设置都在 `config/aiops.yaml`：
+
 ```bash
 cp .env.example .env
-# 编辑 .env，填入你的密钥（DeepSeek 控制台申请，或任意 OpenAI 兼容服务）
+# 编辑 .env，填入密钥（DeepSeek 控制台申请，或任意 OpenAI 兼容服务）
 #   LLM_API_KEY=sk-xxxxxxxx
-#   LLM_BASE_URL=https://api.deepseek.com/v1
-#   LLM_MODEL=deepseek-chat
+# 模型名与服务地址改 config/aiops.yaml 的 llm: 段即可，不用碰代码
 ```
 
 > 用 Docker Compose 时注意路径：compose 默认只读**自己所在目录**的 `.env`。
@@ -162,7 +163,7 @@ kubectl -n aiops port-forward svc/ai-ops-agent 8080:80
 
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r deploy/requirements.txt
 cp .env.example .env                              # 填 LLM_API_KEY
 python -m app.main
 ```
@@ -189,13 +190,37 @@ curl -X POST http://127.0.0.1:8080/api/v1/diagnostics/detect \
 ops-cli alerts && ops-cli report <诊断ID>
 ```
 
-更多场景（接真实 Prometheus、Alertmanager 接入、飞书加签、多集群、鉴权、模型配置与排错）见 **[USAGE.md](USAGE.md#6-常见使用示例)**。
+更多场景（接真实 Prometheus、Alertmanager 接入、飞书加签、多集群、鉴权、模型配置与排错）见 **[docs/USAGE.md](docs/USAGE.md#6-常见使用示例)**。
 
 ---
 
-## 配置速查
+## 配置：挂载一个目录就够了
 
-全部通过环境变量注入（支持 `.env`），完整清单见 [USAGE.md 第 4 章](USAGE.md#4-配置参考) 与 `.env.example`。
+所有可变项都在仓库根目录的 `config/` 里，运行时整目录挂载到 `/etc/aiops`：
+
+```bash
+docker run -v $(pwd)/config:/etc/aiops:ro ... ghcr.io/obc19/ai-ops-agent:latest
+```
+
+```
+config/
+├── aiops.yaml              # 主配置：运行模式 / 数据源 / 模型 / 告警 / 鉴权 / 超时
+├── rules-detection.yaml    # 检测规则：阈值、环比、3σ 基线、日志正则
+├── rules-desensitize.yaml  # 脱敏规则：IP、Token、账号、主机名
+└── clusters.example.yaml   # 多集群模板，复制为 clusters.yaml 才生效
+```
+
+优先级：**环境变量 > `.env` > `config/aiops.yaml` > 代码默认值**。
+所以「文件里写常态、环境变量做临时覆盖」两套都成立，老部署方式不会失效。
+字段含义与完整示例见 [USAGE.md 第 4 章](docs/USAGE.md#4-配置文件挂载--环境变量覆盖)。
+
+| 常改的项 | 位置 |
+| --- | --- |
+| `LLM_API_KEY` | 建议环境变量（密钥不进文件），模型名/地址在 `llm:` |
+| 数据源地址 | `sources:` 段 |
+| 检测周期、告警冷却 | `detection:` 段 |
+| 告警渠道 Webhook | `alerting:` 段 |
+| 三角色 Token | `auth:` 段或环境变量 |
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -217,27 +242,38 @@ ops-cli alerts && ops-cli report <诊断ID>
 ## 项目结构
 
 ```
-app/
-├── main.py                 # FastAPI 入口（API + 静态控制台 + 健康检查）
-├── config/                 # Pydantic 配置、常量、多集群加载
-├── models/                 # 事件 / 诊断 / 告警 / 经验 / 集群模型
-├── collectors/             # 采集适配器（Prometheus / ES / Jaeger / K8s）
-├── detection/              # 异常检测（rules.yaml + 阈值 / 基线 / 日志规则）
-├── gateway/                # 数据安全网关（脱敏规则 + 分流路由 + 审计）
-├── agents/                 # 四类 Agent + 编排中枢 + 报告渲染
-├── alerting/               # 告警策略 / 聚合升级 / 多渠道通知
-├── knowledge/              # 向量库 / RAG / 经验流转
-├── storage/                # SQLite 仓储
-├── api/                    # REST 路由
-├── cli/                    # 命令行工具 ops-cli
-├── mock/                   # mock 世界（可注入故障）
-├── services/               # 诊断闭环流水线
-└── scheduler.py            # 轮询检测调度
+config/                     # 唯一配置源（挂载到 /etc/aiops 即可整体替换）
+├── aiops.yaml              #   主配置
+├── rules-detection.yaml    #   检测规则
+├── rules-desensitize.yaml  #   脱敏规则
+└── clusters.example.yaml   #   多集群模板
+
+app/                        # 运行时程序，不含任何配置值
+├── main.py                 #   FastAPI 入口（API + 静态控制台 + 健康检查）
+├── config/                 #   Pydantic 配置、YAML 配置源、常量、多集群加载
+├── models/                 #   事件 / 诊断 / 告警 / 经验 / 集群模型
+├── collectors/             #   采集适配器（Prometheus / ES / Jaeger / K8s）
+├── detection/              #   异常检测（阈值 / 基线 / 日志规则）
+├── gateway/                #   数据安全网关（脱敏 + 分流路由 + 审计）
+├── agents/                 #   四类 Agent + 编排中枢 + 报告渲染
+├── alerting/               #   告警策略 / 聚合升级 / 多渠道通知
+├── knowledge/              #   向量库 / RAG / 经验流转
+├── storage/                #   SQLite 仓储
+├── api/                    #   REST 路由
+├── cli/                    #   命令行工具 ops-cli
+├── mock/                   #   mock 世界（可注入故障）
+├── services/               #   诊断闭环流水线
+└── scheduler.py            #   轮询检测调度
+
 frontend/                   # Vue 3 + TS 控制台（构建产物打进镜像）
-deploy/                     # Dockerfile / docker-compose / k8s 清单 / 多集群示例
-scripts/demo.py             # 端到端验收自证
+deploy/                     # 构建与部署：Dockerfile / compose / k8s 清单 / requirements.txt
+docs/                       # 使用手册、变更日志、贡献指南、安全说明
+tools/                      # 开发脚本：demo.py 端到端自证（不打进镜像）
 tests/                      # pytest
 ```
+
+**仓库根目录只留门面**：`README.md`、`LICENSE`、`Makefile`、`pyproject.toml`（打包元数据，必须在根）、`.env.example`。
+文档进 `docs/`、依赖清单进 `deploy/`、脚本进 `tools/`，运行时镜像只 COPY `app/` + `config/` + 前端产物。
 
 ---
 
@@ -245,12 +281,13 @@ tests/                      # pytest
 
 | 文档 | 内容 |
 | --- | --- |
-| [USAGE.md](USAGE.md) | **完整使用手册**：环境依赖、四种安装方式、全部配置项、控制台/API/CLI 用法、8 个典型场景、运维与故障排查 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、代码规范、提交约定 |
-| [SECURITY.md](SECURITY.md) | 漏洞报告方式与安全边界 |
+| [docs/USAGE.md](docs/USAGE.md) | **完整使用手册**：环境依赖、四种安装方式、全部配置项、控制台/API/CLI 用法、8 个典型场景、运维与故障排查 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 版本变更记录 |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 开发环境、代码规范、提交约定 |
+| [docs/SECURITY.md](docs/SECURITY.md) | 漏洞报告方式与安全边界 |
 | [.env.example](.env.example) | 全部环境变量模板，复制为 `.env` 即可用 |
-| [deploy/clusters.example.yaml](deploy/clusters.example.yaml) | 多集群配置示例 |
+| [config/aiops.yaml](config/aiops.yaml) | 主配置模板，全部字段带注释 |
+| [config/clusters.example.yaml](config/clusters.example.yaml) | 多集群配置示例 |
 
 ---
 
