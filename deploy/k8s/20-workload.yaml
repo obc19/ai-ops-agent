@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: ghcr.io/obc19/ai-ops-agent:0.6.0
+          image: ghcr.io/obc19/ai-ops-agent:0.7.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

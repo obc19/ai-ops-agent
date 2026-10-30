@@ -1,6 +1,6 @@
 # ai-ops-agent 使用文档
 
-> 适用版本：**v0.6.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
+> 适用版本：**v0.7.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
 
 本文覆盖从零安装到日常使用的全部环节：项目能做什么、需要什么环境、怎么装、怎么配、怎么用、出问题怎么查。只想先跑起来看效果，直接跳到 [3.1 用 Docker Compose 启动](#31-用-docker-compose-启动推荐) 或 [3.4 用源码启动](#34-用源码启动本地开发)。
 

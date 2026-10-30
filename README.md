@@ -10,7 +10,7 @@
 </p>
 
 - 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
-- 镜像：`ghcr.io/obc19/ai-ops-agent:0.6.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.7.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
 - 完整使用手册：[docs/USAGE.md](docs/USAGE.md)
 
 ---

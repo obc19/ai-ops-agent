@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # ---- 运行模式 ----
     app_name: str = "ai-ops-agent"
-    version: str = "0.6.0"
+    version: str = "0.7.0"
     mock_mode: bool = True
     host: str = "0.0.0.0"
     port: int = 8080
