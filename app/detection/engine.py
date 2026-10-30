@@ -8,9 +8,17 @@ from typing import Any
 import yaml
 
 from app.detection.baseline import detect_baseline
+from app.detection.k8s_rules import detect_k8s_events
 from app.detection.log_rules import detect_logs
 from app.detection.threshold import detect_percent_change, detect_static
-from app.models.events import AnomalyEvent, BaseEvent, LogEvent, MetricEvent, TimeWindow
+from app.models.events import (
+    AnomalyEvent,
+    BaseEvent,
+    K8sEvent,
+    LogEvent,
+    MetricEvent,
+    TimeWindow,
+)
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -37,10 +45,11 @@ class DetectionEngine:
         try:
             self._rules = yaml.safe_load(self.rules_path.read_text(encoding="utf-8")) or {}
             logger.info(
-                "检测规则已加载：阈值 %d 条 / 环比 %d 条 / 日志 %d 条",
+                "检测规则已加载：阈值 %d 条 / 环比 %d 条 / 日志 %d 条 / K8s %d 条",
                 len(self._rules.get("thresholds", [])),
                 len(self._rules.get("percent_change", [])),
                 len(self._rules.get("log_rules", [])),
+                len(self._rules.get("k8s_events", [])),
             )
         except (OSError, yaml.YAMLError) as exc:
             # fail-closed：规则加载失败时宁可不出结论，也不误判
@@ -58,6 +67,7 @@ class DetectionEngine:
 
         metrics = [e for e in events if isinstance(e, MetricEvent)]
         logs = [e for e in events if isinstance(e, LogEvent)]
+        k8s_events = [e for e in events if isinstance(e, K8sEvent)]
 
         anomalies: list[AnomalyEvent] = []
         anomalies += detect_static(metrics, self._rules.get("thresholds", []), window)
@@ -66,6 +76,8 @@ class DetectionEngine:
         )
         anomalies += detect_baseline(metrics, self._rules.get("baseline", {}), window)
         anomalies += detect_logs(logs, self._rules.get("log_rules", []), window)
+        # K8s 事件是「布尔型事实」，不走阈值；没有 k8s_events 段就静默跳过
+        anomalies += detect_k8s_events(k8s_events, self._rules.get("k8s_events", []), window)
 
         result = self._dedupe(anomalies) if self._rules.get("dedupe", True) else anomalies
         result.sort(key=lambda a: (a.severity.rank, a.source.value, a.target))

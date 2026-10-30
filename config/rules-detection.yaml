@@ -146,6 +146,76 @@ thresholds:
     value: 0
     severity: P0
 
+  # ---- K8s 原生指标（k8s_*）：不需要 Prometheus，K8s API / metrics-server 直供 ----
+  # 注意这些指标「有值才上报」：Pod 重启次数为 0、副本无缺口时根本不产出，
+  # 所以阈值可以设得比较贴近真实影响面。
+  - id: k8s-pod-restart-high
+    name: Pod 反复重启（≥3 次）
+    metric: k8s_pod_restarts
+    operator: ">="
+    value: 3
+    severity: P1
+  - id: k8s-pod-restart-critical
+    name: Pod 反复重启（≥10 次，疑似循环崩溃）
+    metric: k8s_pod_restarts
+    operator: ">="
+    value: 10
+    severity: P0
+  - id: k8s-pod-not-ready
+    name: Pod 未就绪
+    metric: k8s_pod_ready
+    operator: "=="
+    value: 0
+    severity: P1
+  - id: k8s-pod-cpu-high
+    name: Pod CPU 接近 limit（限流风险）
+    metric: k8s_pod_cpu_percent
+    operator: ">="
+    value: 90
+    severity: P1
+  - id: k8s-pod-memory-high
+    name: Pod 内存接近 limit（OOM 风险）
+    metric: k8s_pod_memory_percent
+    operator: ">="
+    value: 90
+    severity: P1
+  - id: k8s-deployment-unavailable
+    name: 副本未就绪（服务能力下降）
+    metric: k8s_deployment_ready_gap
+    operator: ">="
+    value: 1
+    severity: P1
+  - id: k8s-node-not-ready
+    name: 节点不可用
+    metric: k8s_node_ready
+    operator: "=="
+    value: 0
+    severity: P0
+  - id: k8s-node-memory-pressure
+    name: 节点内存压力（开始驱逐 Pod）
+    metric: k8s_node_memory_pressure
+    operator: "=="
+    value: 1
+    severity: P1
+  - id: k8s-node-disk-pressure
+    name: 节点磁盘压力（开始驱逐 Pod）
+    metric: k8s_node_disk_pressure
+    operator: "=="
+    value: 1
+    severity: P1
+  - id: k8s-node-cpu-high
+    name: 节点 CPU 使用率过高
+    metric: k8s_node_cpu_percent
+    operator: ">="
+    value: 85
+    severity: P1
+  - id: k8s-node-memory-high
+    name: 节点内存使用率过高
+    metric: k8s_node_memory_percent
+    operator: ">="
+    value: 90
+    severity: P1
+
 percent_change:
   - id: cpu-surge
     name: CPU 环比激增
@@ -204,6 +274,62 @@ log_rules:
     name: 服务端 5xx
     pattern: "HTTP 5\\d\\d|Status 5\\d\\d"
     severity: P1
+
+# ---- K8s 事件 / 对象状态（不依赖 Prometheus、不依赖 ELK）----
+# 匹配 K8s 的 reason 常量（忽略大小写），也可用 pattern 兜住 reason 不规范的事件。
+# 同对象同规则在窗口内累计达 min_count 次才报，默认 1 次即报。
+# 这些是「事实型」信号：OOMKilled 发生了就是发生了，不需要看曲线。
+k8s_events:
+  - id: k8s-crashloop
+    name: 容器反复崩溃（CrashLoopBackOff）
+    reasons: [CrashLoopBackOff, BackOff, ContainerCannotRun, RunContainerError]
+    severity: P0
+    hint: 看容器退出码与最后几行日志：退出码 1 多为配置/依赖错误，137 多为 OOM 或被杀
+  - id: k8s-oomkilled
+    name: 容器被内核 OOM 杀死（OOMKilled）
+    reasons: [OOMKilled]
+    severity: P0
+    hint: 内存 limit 给小了或存在泄漏；先看 container_memory 曲线再调 limit
+  - id: k8s-image-pull
+    name: 镜像拉取失败
+    reasons: [ErrImagePull, ImagePullBackOff, InvalidImageName, ErrImageNeverPull]
+    severity: P1
+    hint: 镜像名/标签写错、私有仓库凭据（imagePullSecrets）缺失、仓库不可达
+  - id: k8s-config-error
+    name: 容器配置错误（缺 ConfigMap/Secret）
+    reasons: [CreateContainerConfigError, CreateContainerError]
+    severity: P1
+    hint: 引用的 ConfigMap/Secret 不存在或键名不匹配
+  - id: k8s-unschedulable
+    name: Pod 无法调度
+    reasons: [FailedScheduling, Unschedulable, FailedCreatePodSandBox]
+    severity: P1
+    hint: 资源 request 超过节点可分配量、亲和性/污点不满足、PVC 绑定不上
+  - id: k8s-mount-failed
+    name: 存储挂载失败
+    reasons: [FailedMount, FailedAttachVolume]
+    severity: P1
+    hint: PVC/PV 绑定异常、StorageClass 不可用、云盘挂载数超限
+  - id: k8s-evicted
+    name: Pod 被节点驱逐
+    reasons: [Evicted, Preempted]
+    severity: P1
+    hint: 节点资源压力（内存/磁盘）触发的驱逐，问题在节点不在业务
+  - id: k8s-probe-unhealthy
+    name: 健康检查持续失败
+    reasons: [Unhealthy]
+    severity: P2
+    hint: 探针阈值过严或应用启动慢；持续失败会触发重启并演变成 CrashLoopBackOff
+  - id: k8s-node-not-ready
+    name: 节点失联/不可用
+    reasons: [NodeNotReady, NodeNotSchedulable]
+    severity: P0
+    hint: kubelet 停止上报或节点宕机，其上 Pod 会被标记 NotReady 并逐步驱逐
+  - id: k8s-quota
+    name: 配额/磁盘资源耗尽
+    pattern: "exceeded quota|no space left on device|DiskPressure"
+    severity: P1
+    hint: 命名空间 ResourceQuota 用尽或节点磁盘写满
 
 # 同一对象同一指标只保留最高级别的异常（去重）
 dedupe: true

@@ -240,6 +240,144 @@ ROOT_CAUSE_RULES: dict[str, tuple[str, list[str]]] = {
             "临时扩容副本或提高 CPU limit；根本是优化 CPU 热点",
         ],
     ),
+    # ================= K8s 原生信号（无 Prometheus / 无 ELK 也拿得到）=================
+    # 事件类（metric = 规则 id）
+    "k8s-crashloop": (
+        "{target} 容器反复崩溃：进程启动后很快退出，K8s 进入退避重启",
+        [
+            "kubectl logs <pod> --previous 看上一次退出前的日志（关键：不是当前实例）",
+            "kubectl describe pod <pod> 看 Last State 的 Exit Code：1=应用报错，137=被杀/OOM，143=正常终止信号",
+            "确认启动依赖是否就绪：数据库/配置中心/下游服务，以及启动探针时限是否过短",
+            "临时把副本数拉起保证可用，再用稳定镜像回滚止血",
+        ],
+    ),
+    "k8s-oomkilled": (
+        "{target} 容器被 OOMKilled：内存用量超过容器 limit，被内核直接杀死",
+        [
+            "kubectl top pod <pod> 看实际用量，对比 resources.limits.memory 是否明显偏小",
+            "确认是稳态超限还是启动/批处理瞬时峰值（后者可调大 limit 或降低并发）",
+            "JVM 需确认 -Xmx 小于 limit（建议 70%~80%），否则堆外+堆内会一起撞顶",
+            "怀疑泄漏则导堆分析；单纯加 limit 只治标",
+        ],
+    ),
+    "k8s-image-pull": (
+        "{target} 镜像拉取失败：Pod 卡在 ErrImagePull / ImagePullBackOff，容器从未启动",
+        [
+            "核对镜像名与 tag 是否存在（docker manifest inspect / 仓库页面）",
+            "私有仓库确认 imagePullSecrets 已配置且未过期（kubectl get secret）",
+            "节点侧确认能访问仓库：kubectl describe pod 里的事件会写明 DNS/超时/401",
+            "集群拉外网镜像需代理或镜像同步；确认节点容器运行时配置",
+        ],
+    ),
+    "k8s-config-error": (
+        "{target} 容器配置错误：引用的 ConfigMap / Secret 缺失或键名不匹配，容器创建失败",
+        [
+            "kubectl describe pod <pod> 事件里通常会直接写出缺失的对象名",
+            "确认 ConfigMap/Secret 与 Pod 在同一命名空间",
+            "核对 envFrom / volume 引用的 key 是否真实存在（keys 拼写、大小写）",
+            "Secret 用 stringData 还是 data（后者需 base64），改完重启 Pod 生效",
+        ],
+    ),
+    "k8s-unschedulable": (
+        "{target} 无法调度：集群里没有满足条件的节点，Pod 一直 Pending",
+        [
+            "kubectl describe pod 看调度器给出的具体原因（Insufficient cpu/memory、node affinity 等）",
+            "kubectl describe node 看 Allocated resources 是否已接近满载",
+            "检查 nodeSelector / affinity / tolerations 是否与节点标签、污点匹配",
+            "若 PVC 未绑定也会导致 Pending：kubectl get pvc 确认 Bound 状态",
+        ],
+    ),
+    "k8s-mount-failed": (
+        "{target} 存储挂载失败：卷无法挂到节点或容器上",
+        [
+            "kubectl get pvc / pv 确认绑定状态与 StorageClass 是否正常",
+            "kubectl describe pod 查看 FailedMount 的具体报错（超时/权限/不存在）",
+            "云盘类存储确认挂载点配额（单节点挂载盘数上限）",
+            "必要时重建 PVC 或换可用区一致的 StorageClass",
+        ],
+    ),
+    "k8s-evicted": (
+        "{target} 被节点驱逐：节点资源压力触发 kubelet 驱逐，不是业务自身故障",
+        [
+            "kubectl describe node <node> 看 Conditions 里是 MemoryPressure 还是 DiskPressure",
+            "清理节点磁盘（镜像/日志/无主 volume），或扩容节点内存",
+            "为关键业务设置合理 request/limit 与优先级（PriorityClass）降低被驱逐概率",
+            "排查是否有 Pod 无 limit 导致把节点吃满",
+        ],
+    ),
+    "k8s-probe-unhealthy": (
+        "{target} 健康检查持续失败：liveness/readiness 探针未通过",
+        [
+            "区分 liveness 与 readiness：readiness 失败只是摘流量，liveness 失败会重启容器",
+            "确认探针路径/端口/协议是否与实际监听一致（HTTPS 探针常见坑）",
+            "应用启动慢则加 initialDelaySeconds / startupProbe，不要一味调大 timeout",
+            "探针失败常伴随依赖不可用，需同时看下游与数据库连通性",
+        ],
+    ),
+    "k8s-node-not-ready": (
+        "节点 {target} 失联：kubelet 停止上报心跳，节点上的 Pod 已不可调度/不可达",
+        [
+            "kubectl describe node <node> 看 Ready 的 Reason/Message（KubeletStopped、NetworkUnavailable 等）",
+            "登上节点确认 kubelet 与容器运行时状态（systemctl status kubelet / containerd）",
+            "确认节点资源是否耗尽（磁盘写满、内存打满会导致 kubelet 假死）",
+            "节点确实宕机则先摘除（cordon/drain），把业务迁到健康节点",
+        ],
+    ),
+    "k8s-quota": (
+        "{target} 触达配额或磁盘上限：资源用尽导致创建/写入失败",
+        [
+            "kubectl describe quota -n <ns> 看是哪一项配额用尽",
+            "kubectl describe node 看 DiskPressure 与 ephemeral-storage 使用",
+            "清理无用镜像与日志（crictl rmi --prune、日志轮转）",
+            "长期：提高 ResourceQuota 或扩容节点磁盘",
+        ],
+    ),
+    # 指标类（metric = 指标名）
+    "k8s_pod_restarts": (
+        "{target} Pod 反复重启（累计 {value} 次）：容器没有稳定运行，服务能力在反复中断",
+        [
+            "kubectl describe pod <pod> 看 Last State / Events 的退出原因",
+            "kubectl logs <pod> --previous 取崩溃前的日志",
+            "确认是否为探针误杀（liveness 阈值过严）而非真实崩溃",
+            "若为发布引入，直接回滚上一版本",
+        ],
+    ),
+    "k8s_deployment_ready_gap": (
+        "{target} 副本未就绪：期望副本数与实际就绪数存在缺口，服务冗余下降",
+        [
+            "kubectl get pods -l <selector> 找出未就绪的 Pod 及其状态",
+            "kubectl describe deployment 看 ReplicaFailure 条件与事件",
+            "确认是调度不上、镜像拉不到还是启动后探针不过",
+            "缺口期间服务容量下降，注意限流与降级",
+        ],
+    ),
+    "k8s_node_ready": (
+        "节点 {target} Ready 条件为 False：节点已不可用",
+        [
+            "kubectl describe node <node> 查看 Ready 的 Reason 与最后心跳时间",
+            "确认 kubelet、容器运行时、网络插件（CNI）是否正常",
+            "节点资源耗尽（磁盘/内存/PID）也会让 kubelet 失联",
+            "先 cordon 摘除，把 Pod 调度到健康节点",
+        ],
+    ),
+    "k8s_pod_cpu_percent": (
+        "{target} CPU 用量接近 limit：随时触发 CPU 限流（throttling），延迟会明显抖动",
+        [
+            "kubectl top pod 对比 request/limit，确认是否长期贴 limit",
+            "CPU 限流会直接抬高 P99：先提高 limit 或加副本止血",
+            "排查热点线程/死循环（top -Hp、pprof）",
+            "长期按真实用量重设 request/limit，避免 request 过小导致调度过载",
+        ],
+    ),
+    "k8s_pod_memory_percent": (
+        "{target} 内存用量接近 limit：再涨就会被 OOMKilled",
+        [
+            "确认是缓慢增长（泄漏）还是阶梯上涨（缓存/批量任务）",
+            "临时抬高 limit 止血，同时导堆或采集 profile 找增长点",
+            "JVM 确认 -Xmx 与容器 limit 的比例，预留堆外与元空间",
+            "检查是否有无上限缓存、大结果集一次性加载",
+        ],
+    ),
 }
 
 
@@ -314,11 +452,16 @@ class RootCauseAgent(BaseAgent):
                 ["核查该对象的资源配额与最近变更记录", "对比同期基线，确认是否为业务量突增"],
             ),
         )
-        # 结论与步骤里的 {target} 都替换成真实对象，避免出现别处的服务名
-        root_cause = template.replace("{target}", ctx.target or ctx.anomaly.target)
-        suggestions = [
-            step.replace("{target}", ctx.target or ctx.anomaly.target) for step in steps
-        ]
+        # 结论与步骤里的 {target} / {value} 替换成真实对象与数值，避免出现别处的服务名
+        target_text = ctx.target or ctx.anomaly.target
+        raw_value = ctx.anomaly.value
+        value_text = f"{raw_value:g}" if raw_value is not None else "-"
+
+        def _fill(text: str) -> str:
+            return text.replace("{target}", target_text).replace("{value}", value_text)
+
+        root_cause = _fill(template)
+        suggestions = [_fill(step) for step in steps]
         evidence: list[str] = [f"异常类型命中规则：{ctx.anomaly.rule_name or ctx.metric}"]
 
         topo = getattr(ctx, "topology", None) or {}

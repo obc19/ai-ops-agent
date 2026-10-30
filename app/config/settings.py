@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # 容器跑在 K8s 里时无需配置地址/Token，直接读 ServiceAccount 挂载
     kubernetes_ca_file: str = ""
     kubernetes_token_file: str = ""
+    # 只采这些命名空间（逗号分隔）；留空 = 全部命名空间
+    kubernetes_namespaces: str = ""
     # 数据源为自签证书时置 false；仅在可信内网使用
     tls_verify: bool = True
 

@@ -34,6 +34,7 @@ sources:
   kubernetes_token: ""
   kubernetes_ca_file: ""
   kubernetes_token_file: ""
+  kubernetes_namespaces: ""  # 只采这些命名空间的 Pod/Deployment，逗号分隔；留空 = 全部
   tls_verify: true           # 数据源用自签证书时置 false（仅限可信内网）
 
 # ---- 服务器本体状态（本地直读 /proc，零外部依赖）----
@@ -84,6 +85,10 @@ clusters:
 # ---- 可选模块 ----
 modules:
   enable_trace_agent: false
+  # K8s 采集开关。以下任一情况自动启用，通常不用管这里：
+  #   1) 跑在集群里（读得到 ServiceAccount token）
+  #   2) sources.kubernetes_api_url 配了地址
+  # 只有「想强制打开」时才需要置 true
   enable_k8s_adapter: false
 
 # ---- 大模型（不配 api_key = 规则模式，控制台会红条提示）----
