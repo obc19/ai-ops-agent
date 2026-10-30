@@ -185,6 +185,61 @@ ROOT_CAUSE_RULES: dict[str, tuple[str, list[str]]] = {
             "确认最近是否有发布或配置变更，必要时回滚",
         ],
     ),
+    # ================= 日志规则触发（此时 metric 是规则 id，不是指标名）=================
+    "log-timeout": (
+        "{target} 上游调用超时：下游依赖响应超过阈值，请求在等待中耗尽线程或连接",
+        [
+            "从日志里取出超时的下游服务名与接口，确认它自身是否健康",
+            "检查调用方超时与重试配置：重试次数过多会把下游的慢放大成雪崩",
+            "确认连接池是否被打满（等待获取连接的时间同样计入超时）",
+            "临时提高超时或降级非核心依赖；根本是修复下游变慢的原因",
+        ],
+    ),
+    "log-conn": (
+        "{target} 连接被拒：目标端口未监听、服务未启动，或被网络策略拦截",
+        [
+            "ss -lntp 确认目标端口是否在监听、进程是否存在",
+            "确认最近是否有发布、重启或扩缩容导致实例暂时下线",
+            "检查网络策略 / 安全组 / iptables 是否放通该端口",
+            "若目标是数据库等中间件：确认连接数与最大连接限制是否已满",
+        ],
+    ),
+    "log-oom": (
+        "{target} 发生内存溢出：堆或容器内存耗尽，进程可能已被 OOM Killer 终止",
+        [
+            "dmesg -T | grep -i 'killed process' 确认是否被内核杀掉",
+            "导出堆快照（jmap -dump / pprof）分析对象增长趋势",
+            "检查是否有一次性大批量加载、缓存无上限、集合未清理",
+            "临时提高内存上限止血；根本是修掉泄漏点",
+        ],
+    ),
+    "log-disk": (
+        "{target} 磁盘写满：无法继续写入日志或数据，服务可能进入只读或直接崩溃",
+        [
+            "df -h 定位分区，du -sh /* | sort -h 找出大目录",
+            "清理日志：journalctl --vacuum-size=500M，删除旧压缩包与 core dump",
+            "确认日志轮转（logrotate）是否生效，是否被应用高速写入撑爆",
+            "长期：扩容磁盘 + 容量告警阈值 + 应用侧降低日志级别",
+        ],
+    ),
+    "log-5xx": (
+        "{target} 持续返回 5xx：服务端处理失败，通常是内部异常或下游不可用",
+        [
+            "从日志取 5xx 对应的异常栈，定位抛错的具体代码路径",
+            "确认是否集中在某个接口、某类参数或某个下游依赖",
+            "检查最近发布记录，必要时回滚",
+            "对已知失败路径增加降级与兜底，避免整体不可用",
+        ],
+    ),
+    "log-cpu-throttle": (
+        "{target} 出现 CPU 限流与队列积压：处理能力不足，请求开始排队",
+        [
+            "确认容器 CPU limit 与实际用量，是否长期贴着 limit",
+            "top -Hp <pid> 看是哪个线程在消耗，区分业务线程与 GC/后台线程",
+            "检查是否有死循环、同步阻塞调用或不合理的批处理",
+            "临时扩容副本或提高 CPU limit；根本是优化 CPU 热点",
+        ],
+    ),
 }
 
 
@@ -265,6 +320,23 @@ class RootCauseAgent(BaseAgent):
             step.replace("{target}", ctx.target or ctx.anomaly.target) for step in steps
         ]
         evidence: list[str] = [f"异常类型命中规则：{ctx.anomaly.rule_name or ctx.metric}"]
+
+        topo = getattr(ctx, "topology", None) or {}
+        if topo.get("available"):
+            upstream = topo.get("upstream") or []
+            downstream = topo.get("downstream") or []
+            descendants = topo.get("descendants") or []
+            if upstream:
+                evidence.append(f"拓扑：{ctx.target} 的上游为 {'、'.join(upstream)}")
+            else:
+                evidence.append(f"拓扑：{ctx.target} 是入口服务，没有上游依赖")
+            if descendants:
+                evidence.append(
+                    f"拓扑：{ctx.target} 的下游链路为 {'、'.join(descendants)}，"
+                    "它们若同时异常应优先怀疑本对象"
+                )
+            elif downstream:
+                evidence.append(f"拓扑：{ctx.target} 的直接下游为 {'、'.join(downstream)}")
 
         log_hints = [
             f.conclusion for f in fragments if f.agent is AgentKind.LOG and not f.degraded
@@ -356,6 +428,18 @@ class RootCauseAgent(BaseAgent):
             "各维度分析片段：",
         ]
         lines.extend(f"- {f.brief()}" for f in fragments if f.agent is not AgentKind.ROOT_CAUSE)
+        topo = getattr(ctx, "topology", None) or {}
+        if topo.get("available"):
+            lines.append(
+                f"服务拓扑（来源 {topo.get('source', '-')}）："
+                f"上游={topo.get('upstream') or '无（入口服务）'}；"
+                f"下游={topo.get('downstream') or '无（末端服务）'}；"
+                f"全链路可达下游={topo.get('descendants') or '无'}"
+            )
+            lines.append(
+                "判断要求：若上游与下游在同一时间窗内同时异常，根因应落在更上游的那个对象；"
+                "下游的异常视为连带影响，不要各自归因。"
+            )
         rag_block = RAGService.build_prompt_block(ctx.rag_hits)
         if rag_block:
             lines.append(rag_block)
