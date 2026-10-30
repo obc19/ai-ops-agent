@@ -10,7 +10,7 @@
 </p>
 
 - 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
-- 镜像：`ghcr.io/obc19/ai-ops-agent:0.5.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.6.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
 - 完整使用手册：[docs/USAGE.md](docs/USAGE.md)
 
 ---
@@ -51,6 +51,9 @@ ai-ops-agent 把它自动化：**监测服务器状态 → 异常检测 → 多 
 
 **诊断**
 
+- **服务依赖拓扑**：从 Jaeger span 的父子关系自动推导调用图，也可在配置里手工声明兜底
+- **根因收敛**：多个服务同时异常时按拓扑判定源头，**N 条告警压成 1 条**
+  （根因 + 受影响列表），无拓扑数据时退化为不收敛，绝不硬并
 - 四类 Agent：指标 / 日志 / 链路 / 根因，每条结论都带「置信度 + 依据」
 - 编排中枢负责超时控制（单 Agent 12s、总预算 45s）与失败降级，保证单次诊断 ≤60s
 - 模型层只认 `base_url + model + key`，DeepSeek / 通义 / Kimi / 智谱 / OpenAI / 自建 vLLM 皆可
@@ -318,6 +321,8 @@ tests/                      # pytest
 ## 已知边界
 
 - **诊断不自动处置**：只给结论与可执行步骤，重启、扩缩容等写操作由管理员执行
+- **收敛依赖拓扑质量**：拓扑来自 span 父子关系，采样率过低或有大量异步调用（MQ、定时任务）时会漏边，
+  需要手工补 `topology.dependencies`；没有拓扑时不会猜测
 - **服务器监测依赖 `/proc`**：Linux 才有；容器需挂载宿主机 `/proc`，Docker Desktop 下只能看到虚拟机
 - **看不到客户端侧**：拨测覆盖 DNS / 建连 / TLS / 首字节，但前端渲染、CDN 命中、真实用户分布不在范围内
 - **单副本运行**：进程内调度 + SQLite 单写，多副本会重复检测、重复告警、分裂知识库

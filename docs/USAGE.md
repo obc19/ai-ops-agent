@@ -1,6 +1,6 @@
 # ai-ops-agent 使用文档
 
-> 适用版本：**v0.5.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
+> 适用版本：**v0.6.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
 
 本文覆盖从零安装到日常使用的全部环节：项目能做什么、需要什么环境、怎么装、怎么配、怎么用、出问题怎么查。只想先跑起来看效果，直接跳到 [3.1 用 Docker Compose 启动](#31-用-docker-compose-启动推荐) 或 [3.4 用源码启动](#34-用源码启动本地开发)。
 
@@ -102,7 +102,7 @@ K8s events ┘                                                    ▼
 | Jaeger | 链路查询 | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
 | Kubernetes apiserver | 集群事件 | K8s 内运行可自动发现；否则 `KUBERNETES_API_URL` |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
-| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.10](#410-告警渠道) |
+| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.11](#411-告警渠道) |
 
 > **不配 LLM 会发生什么（必须知道）**：Agent 全部走内置规则，结论是「命中固定条件 → 套模板」，没有推理；报告置信度天然偏低，末尾标注 `LLM 参与：否`。
 > 此时链路仍然完整可跑，告警照发，但它已经不是 AI 分析了。系统会通过三种方式提醒你：
@@ -493,7 +493,72 @@ targets:
 两个实现细节值得知道：首次请求会**预热后丢弃**（否则冷启动开销会把建连耗时虚高 300ms 并误报）；
 请求失败时**只报 `probe_ok` 一条**，不再叠加 total / ttfb 分段告警。
 
-### 4.7 数据源（单集群）
+### 4.7 服务依赖拓扑与根因收敛
+
+这是**把 N 条告警压成 1 条**的地方：多个服务同时异常时，靠调用关系判断谁是源头、谁是被带垮的。
+
+**为什么需要它**
+
+没有拓扑时，5 个服务一起异常就产生 5 条告警、5 份报告，每份都在独立猜根因，
+人还是得自己去判断「其实是 payment 挂了把 order 拖垮」。
+
+**数据从哪来**（按优先级合并）
+
+| 来源 | 怎么获得 | 适用 |
+| --- | --- | --- |
+| 链路推导（首选） | 配 `JAEGER_URL`，平台从 span 的父子关系自动抽取 | 有分布式链路追踪 |
+| 手工声明 | `topology.dependencies` | 无 trace、或异步调用（MQ / 定时任务） |
+| 都没有 | 空图 | **收敛自动退化为不收敛**，不猜测 |
+
+手工声明的写法（`config/aiops.yaml`）：
+
+```yaml
+topology:
+  enabled: true
+  refresh_seconds: 300          # 缓存时长；0 = 每次都用最新的
+  escalate_by_impact: true      # 根因被 N 个下游连带时提升等级
+  dependencies:
+    api-gateway: [order-service]
+    order-service: [payment-service, user-service]
+```
+
+**收敛规则**
+
+按拓扑序（上游 → 下游）遍历异常对象：若它的某个直接上游也在异常集合里，就并入上游所在的群；
+否则它自己就是源头，新建一个群。
+
+| 场景 | 结果 |
+| --- | --- |
+| gateway / order / payment 全异常 | 1 组，根因 `gateway` |
+| gateway 正常，order / payment 异常 | 1 组，根因 `order` |
+| payment 与 user 各自异常，order 正常 | **2 组**（没有依赖关系，不合并） |
+| 同一对象 3 个指标异常 | 1 组（先合并为单个异常节点） |
+| 完全没有拓扑数据 | 每条独立成案，理由里写明「未做关联」 |
+
+`escalate_by_impact=true` 时，若根因自身是 P2 但带垮了一个 P0 的下游，
+根因会被提升为 P0，摘要里注明「因影响 N 个下游，等级由 P2 提升至 P0」。
+
+**看效果**
+
+```bash
+curl -s http://127.0.0.1:8080/api/v1/topology | jq '.path'
+```
+
+```
+api-gateway
+  └─ order-service
+    └─ payment-service
+    └─ user-service
+```
+
+诊断报告的「同源影响」一节会列出被抑制的异常，「服务拓扑」一节给出该对象的上下游位置。
+控制台的诊断列表里，收敛过的报告带「收敛 +N」标记。
+
+> **拓扑为空时怎么办**：`GET /api/v1/topology` 会返回 `hint` 说明三种来源。
+> 最常见的坑是 Jaeger 采样率太低——拓扑回看窗口是 2 小时，远超检测的 5 分钟窗口，
+> 就是为了把低频调用也捞进来。
+
+### 4.8 数据源（单集群）
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -508,7 +573,7 @@ targets:
 | `ENABLE_TRACE_AGENT` | `false` | 链路 Agent 开关 |
 | `ENABLE_K8S_ADAPTER` | `false` | K8s 事件适配器开关 |
 
-### 4.8 多集群
+### 4.9 多集群
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -533,7 +598,7 @@ clusters:
 
 未配置的数据源自动跳过；`GET /api/v1/clusters/sources` 可查看实际生效的集群与数据源。
 
-### 4.9 模型与知识库
+### 4.10 模型与知识库
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -547,7 +612,7 @@ clusters:
 | `KNOWLEDGE_DEDUP_THRESHOLD` | `0.92` | 经验去重相似度阈值（同对象才判重） |
 | `RAG_MIN_SCORE` | `0.15` | 经验命中最低分；接真实 embedding 后可调高 |
 
-### 4.10 告警渠道
+### 4.11 告警渠道
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -565,7 +630,7 @@ clusters:
 
 > mock 模式下所有通知打到内置接收端 `/_mock/sink`，方便本地验收，不会真的发到群里。
 
-### 4.11 鉴权
+### 4.12 鉴权
 
 | 变量 | 角色 | 权限 |
 | --- | --- | --- |
@@ -578,7 +643,7 @@ clusters:
 - 传递方式：`Authorization: Bearer <token>` 或 `X-Auth-Token: <token>`。
 - 控制台右上角有输入框，填 Token 后保存即可（存在浏览器本地）。
 
-### 4.12 Agent 超时与检测规则
+### 4.13 Agent 超时与检测规则
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
