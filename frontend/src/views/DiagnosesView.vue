@@ -48,6 +48,11 @@ onMounted(load)
               class="tag p2"
               :title="r.correlation.reason"
             >收敛 +{{ r.correlation.suppressed }}</span>
+            <span
+              v-if="r.evidence && r.evidence.length"
+              class="tag ok"
+              title="取证工作流自动采集的现场证据"
+            >取证 {{ r.evidence.length }}</span>
           </td>
           <td>
             <span :class="r.status === 'ok' ? 'tag ok' : r.status === 'partial' ? 'tag p1' : 'tag p0'">
@@ -76,6 +81,10 @@ onMounted(load)
         class="tag p2"
         :title="selected.correlation.reason"
       >收敛 {{ selected.correlation.suppressed }} 条同源异常</span>
+      <span
+        v-if="selected.evidence && selected.evidence.length"
+        class="tag ok"
+      >自动取证 {{ selected.evidence.filter((e: any) => e.ok).length }}/{{ selected.evidence.length }} 步</span>
       <button @click="showRaw = !showRaw">{{ showRaw ? '预览' : '源码' }}</button>
       <button @click="selected = null; detail = ''">关闭</button>
     </div>

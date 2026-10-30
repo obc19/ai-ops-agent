@@ -61,6 +61,8 @@ ai-ops-agent 把它自动化：**监测服务器状态 → 异常检测 → 多 
 **诊断**
 
 - **服务依赖拓扑**：从 Jaeger span 的父子关系自动推导调用图，也可在配置里手工声明兜底
+- **自动取证工作流**：声明式 YAML（trigger → steps），按异常类型自动去拉 Pod 状态、崩溃前日志、
+  最近一次发布与镜像版本，证据进报告也进 LLM；**严格只读，没有任何执行动作**
 - **根因收敛**：多个服务同时异常时按拓扑判定源头，**N 条告警压成 1 条**
   （根因 + 受影响列表），无拓扑数据时退化为不收敛，绝不硬并
 - 四类 Agent：指标 / 日志 / 链路 / 根因，每条结论都带「置信度 + 依据」
@@ -162,6 +164,47 @@ export ENABLE_K8S_ADAPTER=true
 控制台「K8s 集群状态」卡片会直接标出当前档位：
 `metrics-server 可用（含 CPU/内存用量）` 或 `未安装（事件与状态不受影响）`，
 不会用 0 或者空图冒充「一切正常」。同一份数据也在 `GET /api/v1/cluster`。
+
+---
+
+## 自动取证（工作流）
+
+发现问题后，平台不该只丢一句「可能是内存不足」就让人自己去翻。
+`config/workflows.yaml` 用声明式方式描述「什么异常 → 采什么证据」，参考了
+[keephq/keep](https://github.com/keephq/keep) 的 workflow 结构，但**去掉了 actions**：
+
+```yaml
+workflows:
+  - id: k8s-crash-evidence
+    triggers:
+      - rules: ["k8s-crashloop", "k8s-oomkilled"]   # 支持通配符 k8s-*
+        source: ["k8s"]
+    steps:
+      - name: pod-detail
+        provider: k8s.pod                            # 状态、重启次数、上次退出原因、limit
+        with: {namespace: "{{ anomaly.namespace }}", name: "{{ anomaly.target }}"}
+      - name: crash-logs
+        provider: k8s.logs                           # previous=true 取上一个容器实例
+        with: {namespace: "{{ anomaly.namespace }}", pod: "{{ anomaly.target }}", tail_lines: 80}
+      - name: recent-release
+        provider: k8s.rollout                        # 最近一次发布在多久之前、镜像是什么
+        with: {namespace: "{{ anomaly.namespace }}", target: "{{ anomaly.target }}"}
+```
+
+一次 CrashLoop 告警，报告里会直接多出三行一手事实：
+
+> `k8s.pod` Pod 处于 Running；调度在节点 node-1；累计重启 6 次；容器 app 上次因 OOMKilled（退出码 137）终止；limit `{'cpu': '1', 'memory': '512Mi'}`
+> `k8s.logs` 取到上一个容器实例最近 80 行日志；命中「内存溢出」
+> `k8s.rollout` 最近一次发布：order-service 的 ReplicaSet 创建于 10-30 01:52，镜像 `registry/order:1.4.2`（就绪 1/3）
+
+这些证据同时进规则结论、进 LLM prompt，所以「是不是刚发版」这种问题不需要人再问一遍。
+
+**为什么没有 actions**：这个平台的定位是「诊断 + 方案，人来修」。工作流只做只读 GET，
+连 `kubectl exec` 都没有，配置写错最坏结果是取证失败，不可能改坏生产。
+护栏：单次诊断最多 3 个工作流 × 8 步，单步 6s、总预算 12s，任一步失败只记一条 `ok=false` 不影响诊断。
+
+可用采集器：`k8s.pod` / `k8s.logs` / `k8s.rollout` / `http.get`。
+`GET /api/v1/workflows` 可以直接看当前加载了哪些、会匹配什么、能采什么。
 
 ---
 
@@ -330,6 +373,8 @@ config/                     # 唯一配置源（挂载到 /etc/aiops 即可整�
 ├── aiops.yaml              #   主配置
 ├── rules-detection.yaml    #   检测规则
 ├── rules-desensitize.yaml  #   脱敏规则
+├── workflows.yaml          #   取证工作流（trigger → steps，只读）
+├── probes.yaml             #   主动拨测目标
 └── clusters.example.yaml   #   多集群模板
 
 app/                        # 运行时程序，不含任何配置值
@@ -340,6 +385,7 @@ app/                        # 运行时程序，不含任何配置值
 ├── detection/              #   异常检测（阈值 / 基线 / 日志规则 / K8s 事件规则）
 ├── gateway/                #   数据安全网关（脱敏 + 分流路由 + 审计）
 ├── agents/                 #   四类 Agent + 编排中枢 + 报告渲染
+├── workflows/              #   取证工作流（触发器 / 只读 Provider / 执行护栏）
 ├── alerting/               #   告警策略 / 聚合升级 / 多渠道通知
 ├── knowledge/              #   向量库 / RAG / 经验流转
 ├── storage/                #   SQLite 仓储
@@ -352,7 +398,7 @@ app/                        # 运行时程序，不含任何配置值
 frontend/                   # Vue 3 + TS 控制台（构建产物打进镜像）
 deploy/                     # 构建与部署：Dockerfile / compose / k8s 清单 / requirements.txt
 docs/                       # 使用手册、变更日志、贡献指南、安全说明
-tools/                      # 开发脚本：demo.py 端到端自证（不打进镜像）
+tools/                      # 开发脚本：demo.py 端到端自证、verify_workflows.py 无集群验证取证（不打进镜像）
 tests/                      # pytest
 ```
 

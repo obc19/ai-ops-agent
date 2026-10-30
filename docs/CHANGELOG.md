@@ -4,12 +4,27 @@
 
 ## [未发布]
 
-回答一个问题：**只有一个 K8s 集群，没上 Prometheus 也没上 ELK，这套东西还能监控吗？**
-原来的答案是「能跑但基本瞎」——K8s 适配器只拉了事件，而检测引擎**根本不消费 K8s 事件**，
-开了开关也是 0 条告警。这一版把裸集群做成一等公民。
+两件事，一条线：**让平台在没有监控栈的集群里也说得清"为什么"**。
+
+1. 裸 K8s 集群（无 Prometheus / 无 ELK）做成一等公民 —— 此前 K8s 适配器只拉事件，
+   而检测引擎**根本不消费 K8s 事件**，开了开关也是 0 条告警。
+2. 参照 [keephq/keep](https://github.com/keephq/keep) 补上**声明式取证工作流** ——
+   此前 Agent 一次性取数、不能追问，报告只能给"可能是什么"，给不出"现场是什么"。
 
 ### 新增
 
+- **取证工作流**（`app/workflows/`，参考 keep 的 trigger → steps → actions 结构，**去掉 actions**）
+  - `config/workflows.yaml` 声明式定义：`triggers`（rules 通配符 / severity / source / target_regex）
+    → `steps`（provider + 参数），支持 `{{ anomaly.* }}` 与 `{{ steps.<名>.<字段> }}` 模板变量
+  - 4 个只读 Provider：`k8s.pod`（状态/重启/上次退出原因/limit）、`k8s.logs`（`previous=true`
+    取崩溃前的上一个容器实例）、`k8s.rollout`（ReplicaSet 创建时间反推「最近一次发布」）、
+    `http.get`（探依赖健康页，探不通也算一条证据）
+  - 证据写入 `DiagnosisReport.evidence`，在 Markdown 报告新增「自动取证」一节，
+    同时进入规则结论依据与 LLM prompt
+  - 护栏：3 个工作流 × 8 步、单步 6s、总预算 12s；任一步失败转 `ok=false` 不抛出；
+    与 `collect_all` **并行执行**，不额外增加诊断耗时
+  - 新增 `GET /api/v1/workflows` 查看已加载定义与可用 Provider
+  - 控制台诊断列表/详情显示「取证 N」「自动取证 x/y 步」标记
 - **K8s 事件检测规则**（`app/detection/k8s_rules.py` + `rules-detection.yaml` 的 `k8s_events` 段）
   - 按 `reason` 白名单匹配：CrashLoopBackOff / OOMKilled / ImagePullBackOff / CreateContainerConfigError /
     FailedScheduling / Evicted / Unhealthy / NodeNotReady 等 10 组，各带 `hint` 给出排查方向
@@ -39,6 +54,8 @@
 ### 文档
 
 - README 新增「无 Prometheus / 无 ELK 模式」：逐信号列出「来源 / 需要装什么 / 缺了会失去什么」
+- README 新增「自动取证（工作流）」：为什么没有 actions、护栏是什么、能拿到什么
+- USAGE 新增 4.9 取证工作流：触发器语义、Provider 参数表、模板变量、排查接口
 - 明确一点：Pod 起不来、节点不可用、副本掉了这些**K8s API 自己就能回答**，
   反而 ELK 拿不到（容器已死，日志没落盘）
 

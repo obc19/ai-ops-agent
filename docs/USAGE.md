@@ -103,7 +103,7 @@ K8s events ┘                                                    ▼
 | Kubernetes apiserver | Pod/节点/副本/事件（**裸集群的主信号**） | K8s 内运行零配置自动启用；集群外配 `KUBERNETES_API_URL` / `KUBERNETES_TOKEN` |
 | metrics-server | 仅补 Pod/Node 的 CPU、内存用量，**可选** | 集群侧组件，装了自动识别 |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
-| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.11](#411-告警渠道) |
+| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.12](#412-告警渠道) |
 
 > **不配 LLM 会发生什么（必须知道）**：Agent 全部走内置规则，结论是「命中固定条件 → 套模板」，没有推理；报告置信度天然偏低，末尾标注 `LLM 参与：否`。
 > 此时链路仍然完整可跑，告警照发，但它已经不是 AI 分析了。系统会通过三种方式提醒你：
@@ -595,7 +595,48 @@ api-gateway
 `k8s_events`（按 reason 白名单，含 `hint` 字段用于给管理员提示排查方向）两段，可直接改阈值/加 reason，无需改代码。
 
 
-### 4.9 多集群
+### 4.9 取证工作流
+
+检测出异常后，按 `config/workflows.yaml` 自动采集现场证据，结果写进诊断报告的「自动取证」一节。
+结构参考 [keephq/keep](https://github.com/keephq/keep) 的 workflow（triggers → steps → actions），
+但**只保留 triggers 与 steps**：本平台只读，不执行 actions。
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `WORKFLOW_ENABLED` | `true` | 取证总开关 |
+| `WORKFLOW_CONFIG` | 空 | 工作流文件路径，留空用 `<配置目录>/workflows.yaml` |
+| `WORKFLOW_TIMEOUT` | `12` | 单次诊断的取证总预算（秒） |
+| `WORKFLOW_STEP_TIMEOUT` | `6` | 单个步骤超时（秒） |
+
+**触发器**（字段之间 AND，字段内列表 OR；不写条件的 workflow 不会触发）：
+
+```yaml
+triggers:
+  - rules: ["k8s-crashloop", "k8s-*"]   # 匹配 anomaly.metric 或 rule_id，支持通配符
+    severity: ["P0", "P1"]
+    source: ["k8s"]                     # metric / log / trace / k8s
+    target_regex: "-7d9f8c$"
+```
+
+**采集器**（全部只读 GET）：
+
+| Provider | 需要的参数 | 产出 |
+| --- | --- | --- |
+| `k8s.pod` | `namespace` `name` | 相位、节点、重启次数、容器当前/上一次状态与退出码、资源 limit |
+| `k8s.logs` | `namespace` `pod`；可选 `container` `tail_lines` `previous` | 日志尾部；`previous=true` 取崩溃前的上一个容器实例 |
+| `k8s.rollout` | `namespace`；可选 `workload` `target` | 最近一次发布（ReplicaSet 创建时间）、镜像版本、就绪副本 |
+| `http.get` | `url`；可选 `timeout` | 状态码、耗时、响应前 500 字（探不通也算一条证据） |
+
+**模板变量**：`{{ anomaly.cluster }}` `{{ anomaly.namespace }}` `{{ anomaly.target }}`
+`{{ anomaly.metric }}` `{{ anomaly.severity }}` `{{ anomaly.rule_id }}`，
+以及引用前序步骤结果的 `{{ steps.<步骤名>.<字段> }}`。
+
+**护栏**：单次诊断最多 3 个工作流 × 8 步；超时直接放弃并记一条「取证超时」；
+任何一步失败都转成 `ok=false` 的证据条目，不抛出、不影响诊断。
+排查配置有没有生效：`GET /api/v1/workflows`（会列出已加载的定义、触发器、步骤与可用 Provider）。
+
+
+### 4.10 多集群
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -620,7 +661,7 @@ clusters:
 
 未配置的数据源自动跳过；`GET /api/v1/clusters/sources` 可查看实际生效的集群与数据源。
 
-### 4.10 模型与知识库
+### 4.11 模型与知识库
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -634,7 +675,7 @@ clusters:
 | `KNOWLEDGE_DEDUP_THRESHOLD` | `0.92` | 经验去重相似度阈值（同对象才判重） |
 | `RAG_MIN_SCORE` | `0.15` | 经验命中最低分；接真实 embedding 后可调高 |
 
-### 4.11 告警渠道
+### 4.12 告警渠道
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -652,7 +693,7 @@ clusters:
 
 > mock 模式下所有通知打到内置接收端 `/_mock/sink`，方便本地验收，不会真的发到群里。
 
-### 4.12 鉴权
+### 4.13 鉴权
 
 | 变量 | 角色 | 权限 |
 | --- | --- | --- |
@@ -665,7 +706,7 @@ clusters:
 - 传递方式：`Authorization: Bearer <token>` 或 `X-Auth-Token: <token>`。
 - 控制台右上角有输入框，填 Token 后保存即可（存在浏览器本地）。
 
-### 4.13 Agent 超时与检测规则
+### 4.14 Agent 超时与检测规则
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -1003,6 +1044,7 @@ targets:
 
 ```bash
 python tools/demo.py            # 或 make demo，端到端自证 8 条验收标准
+python tools/verify_workflows.py  # 无集群验证取证工作流（假 apiserver + 真实诊断）
 python -m pytest -q             # 单元与接口测试
 ```
 
