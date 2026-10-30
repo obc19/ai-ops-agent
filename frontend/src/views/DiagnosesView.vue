@@ -41,7 +41,14 @@ onMounted(load)
       <tbody>
         <tr v-for="r in items" :key="r.id" @click="open(r)">
           <td class="mono">{{ r.id.slice(0, 16) }}</td>
-          <td>{{ r.cluster }}/{{ r.target }}</td>
+          <td>
+            {{ r.cluster }}/{{ r.target }}
+            <span
+              v-if="r.correlation && r.correlation.suppressed"
+              class="tag p2"
+              :title="r.correlation.reason"
+            >收敛 +{{ r.correlation.suppressed }}</span>
+          </td>
           <td>
             <span :class="r.status === 'ok' ? 'tag ok' : r.status === 'partial' ? 'tag p1' : 'tag p0'">
               {{ r.status }}
@@ -64,6 +71,11 @@ onMounted(load)
       <span v-if="selected.used_llm" class="tag ok">LLM 参与</span>
       <span v-else class="tag gray">规则引擎</span>
       <span v-if="selected.rag_hits.length" class="tag p2">命中 {{ selected.rag_hits.length }} 条经验</span>
+      <span
+        v-if="selected.correlation && selected.correlation.suppressed"
+        class="tag p2"
+        :title="selected.correlation.reason"
+      >收敛 {{ selected.correlation.suppressed }} 条同源异常</span>
       <button @click="showRaw = !showRaw">{{ showRaw ? '预览' : '源码' }}</button>
       <button @click="selected = null; detail = ''">关闭</button>
     </div>

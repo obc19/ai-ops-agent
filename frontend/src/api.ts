@@ -37,7 +37,9 @@ export const api = {
     request<any>('/api/v1/audit?' + new URLSearchParams(params as any).toString()),
   llmStatus: () => request<any>('/api/v1/system/llm'),
   llmTest: () => request<any>('/api/v1/system/llm-test', { method: 'POST' }),
-  host: () => request<any>('/api/v1/host')
+  host: () => request<any>('/api/v1/host'),
+  topology: (refresh = false) =>
+    request<any>('/api/v1/topology' + (refresh ? '?refresh=true' : ''))
 }
 
 export function fmtTime(value?: string): string {

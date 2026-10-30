@@ -93,6 +93,18 @@ input, select {
 
 .muted { color: var(--muted); }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+pre.topo {
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.85;
+  overflow: auto;
+}
 pre.markdown {
   background: #0f1524; color: #dbe4f5; padding: 16px; border-radius: 10px;
   overflow: auto; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap;

@@ -4,6 +4,7 @@ import { api, fmtTime } from '../api'
 
 const data = ref<any>(null)
 const host = ref<any>(null)
+const topology = ref<any>(null)
 const recent = ref<any[]>([])
 const loading = ref(true)
 
@@ -11,8 +12,9 @@ async function load() {
   loading.value = true
   try {
     data.value = await api.overview()
-    // 服务器状态接口失败不应拖垮整页
+    // 服务器状态 / 拓扑接口失败不应拖垮整页
     host.value = await api.host().catch(() => null)
+    topology.value = await api.topology().catch(() => null)
     const alerts = await api.alerts({ limit: 8 })
     recent.value = alerts.items || []
   } finally {
@@ -67,6 +69,25 @@ onMounted(load)
         <span class="tag p1">P1 · {{ data.severity_count.P1 || 0 }}</span>
         <span class="tag p2">P2 · {{ data.severity_count.P2 || 0 }}</span>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>
+        服务依赖拓扑
+        <span v-if="topology?.stats" class="muted" style="font-size: 12px; font-weight: 400; margin-left: 8px">
+          {{ topology.stats.nodes }} 个节点 / {{ topology.stats.edges }} 条依赖 · 来源 {{ topology.source }}
+        </span>
+      </h2>
+      <div v-if="!topology" class="empty">未获取到拓扑数据</div>
+      <div v-else-if="!topology.edges.length" class="empty">{{ topology.hint || '拓扑为空' }}</div>
+      <template v-else>
+        <pre class="topo">{{ topology.path }}</pre>
+        <div class="row" style="margin-top: 10px">
+          <span class="tag ok">异常会沿调用链收敛为单一根因</span>
+          <span v-if="topology.stats.has_cycle" class="tag p1">存在循环依赖</span>
+          <span class="tag gray">刷新周期 {{ topology.refresh_seconds }}s</span>
+        </div>
+      </template>
     </div>
 
     <div class="card">
