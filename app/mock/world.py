@@ -53,6 +53,25 @@ class MockWorld:
         self._faults: dict[str, Fault] = {}
         self._rng = random.Random(20261026)
 
+    # 演示用的服务依赖：入口 → 订单 → {支付, 用户}
+    # 真实环境由 Jaeger 的 span 父子关系推导；这里给 mock 一份确定性的图，
+    # 让「根因收敛」在没有链路数据时也能被验证。
+    DEPENDENCIES: tuple[tuple[str, str], ...] = (
+        ("api-gateway", "order-service"),
+        ("order-service", "payment-service"),
+        ("order-service", "user-service"),
+    )
+
+    def dependency_edges(self) -> list[tuple[str, str, int, int]]:
+        """mock 下的服务调用边 ``(caller, callee, calls, error_calls)``。"""
+        faulted = set(self._faulted_targets("http_latency_p99_ms")) | set(
+            self._faulted_targets("cpu_usage_percent")
+        )
+        return [
+            (caller, callee, 120, 10 if callee in faulted else 0)
+            for caller, callee in self.DEPENDENCIES
+        ]
+
     # ---------- 故障注入 ----------
     def inject_fault(
         self,

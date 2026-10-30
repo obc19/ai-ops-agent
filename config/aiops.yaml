@@ -56,6 +56,25 @@ probe:
   config: ""                   # 留空 = 自动使用同目录 probes.yaml
   timeout: 5
 
+# ---- 服务依赖拓扑 ----
+# 拓扑是「根因收敛」的唯一依据：多个服务同时异常时，靠它判断谁是源头、
+# 谁是被带垮的，从而把 N 条告警压成 1 条。
+#
+# 数据来源按优先级合并：
+#   1. 链路推导（首选）：配了 JAEGER_URL 就自动从 span 父子关系抽取，无需手工维护；
+#   2. 手工声明（兜底）：trace 采样率低、或有异步调用（MQ / 定时任务）时补充。
+# 两者都没有 → 空图 → 收敛自动退化为「不收敛」，绝不瞎猜。
+topology:
+  enabled: true
+  refresh_seconds: 300         # 缓存多久重新推导一次；0 = 每次都用最新的
+  escalate_by_impact: true     # 根因被 N 个下游连带时，等级提升到群内最严重
+  # 手工声明调用关系，格式 {上游: [下游, ...]}
+  # 例：order-service 调用 payment-service 与 user-service
+  dependencies: {}
+  # dependencies:
+  #   api-gateway: [order-service]
+  #   order-service: [payment-service, user-service]
+
 # ---- 多集群 ----
 clusters:
   # 集群清单路径在下面 rules.clusters 配置；留空时若本目录存在 clusters.yaml 会自动加载。

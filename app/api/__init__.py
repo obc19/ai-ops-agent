@@ -12,11 +12,13 @@ from app.api.routes import (
     knowledge,
     overview,
     system,
+    topology,
 )
 
 api_router = APIRouter()
 api_router.include_router(overview.router)
 api_router.include_router(host.router)
+api_router.include_router(topology.router)
 api_router.include_router(clusters.router)
 api_router.include_router(diagnostics.router)
 api_router.include_router(alerts.router)

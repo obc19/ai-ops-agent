@@ -65,6 +65,10 @@ _SECTION_ALIASES: dict[tuple[str, str], str] = {
     ("probe", "enabled"): "probe_enabled",
     ("probe", "config"): "probe_config",
     ("probe", "timeout"): "probe_timeout",
+    ("topology", "enabled"): "topology_enabled",
+    ("topology", "refresh_seconds"): "topology_refresh_seconds",
+    ("topology", "dependencies"): "topology_dependencies",
+    ("topology", "escalate_by_impact"): "topology_escalate_by_impact",
 }
 
 

@@ -7,7 +7,7 @@ YAML 是主力（可整目录挂载），环境变量用于临时覆盖单项。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # ---- 运行模式 ----
     app_name: str = "ai-ops-agent"
-    version: str = "0.5.0"
+    version: str = "0.6.0"
     mock_mode: bool = True
     host: str = "0.0.0.0"
     port: int = 8080
@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     probe_enabled: bool = True
     probe_config: str = ""          # 留空则自动找 <配置目录>/probes.yaml
     probe_timeout: float = Field(default=5.0, gt=0)
+
+    # ---- 服务拓扑（根因收敛的唯一依据：谁调谁）----
+    topology_enabled: bool = True
+    topology_refresh_seconds: int = Field(default=300, ge=0)
+    # trace 推导不全时的兜底：手工声明 {caller: [callee, ...]}
+    topology_dependencies: dict[str, Any] = Field(default_factory=dict)
+    # 根因被 N 个下游连带时，把等级提升到群内最严重
+    topology_escalate_by_impact: bool = True
 
     # ---- LLM ----
     llm_base_url: str = "https://api.deepseek.com/v1"

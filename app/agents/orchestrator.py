@@ -48,13 +48,20 @@ class Orchestrator:
         self.root_agent = RootCauseAgent()
 
     # ---------- 主流程 ----------
-    async def run(self, anomaly: AnomalyEvent, window: TimeWindow | None = None) -> DiagnosisReport:
+    async def run(
+        self,
+        anomaly: AnomalyEvent,
+        window: TimeWindow | None = None,
+        correlation=None,
+    ) -> DiagnosisReport:
         started = utc_now()
         window = window or anomaly.window
         logger.info("编排开始：%s", anomaly.display())
         self.db.save_anomaly(anomaly)
 
         events = await collect_all(window)
+        # 先取拓扑：根因 Agent 需要用上下游关系做因果推断（谁带垮了谁）
+        topology_info = await self._topology_info(anomaly.target)
         ctx = DiagnosisContext(
             anomaly=anomaly,
             window=window,
@@ -63,6 +70,7 @@ class Orchestrator:
             trace_events=[e for e in events if isinstance(e, TraceEvent)],
             k8s_events=[e for e in events if isinstance(e, K8sEvent)],
             store=self.db,
+            topology=topology_info,
         )
         ctx.rag_hits = await self.rag.retrieve(self._rag_query(anomaly))
 
@@ -93,6 +101,8 @@ class Orchestrator:
             rag_hits=ctx.rag_hits,
             used_llm=root.used_llm,
             degraded_agents=degraded,
+            correlation=correlation.to_public() if correlation is not None else {},
+            topology=topology_info,
             created_at=started,
         )
         if len(active) < 3:
@@ -110,6 +120,8 @@ class Orchestrator:
                 "duration_ms": report.duration_ms,
                 "used_llm": report.used_llm,
                 "rag_hits": len(ctx.rag_hits),
+                "correlated_suppressed": len(correlation.members) if correlation else 0,
+                "topology_source": topology_info.get("source", ""),
             },
             target=anomaly.target,
         )
@@ -121,6 +133,37 @@ class Orchestrator:
             report.duration_ms / 1000,
         )
         return report
+
+    async def _topology_info(self, target: str) -> dict:
+        """取该对象在依赖图中的位置，供报告展示与根因表述使用。"""
+        try:
+            from app.topology import get_topology
+
+            graph = await get_topology().current()
+        except Exception as exc:  # noqa: BLE001 - 拓扑不可用不得阻断诊断
+            logger.warning("读取拓扑失败：%s", exc)
+            return {"available": False, "note": f"拓扑不可用：{exc}"}
+
+        if graph.is_empty():
+            return {
+                "available": False,
+                "note": "未获得服务依赖数据（未配置 JAEGER_URL，且未声明 topology.dependencies）",
+            }
+        if not graph.has_node(target):
+            return {
+                "available": False,
+                "note": f"{target} 不在服务依赖图中（主机、拨测目标等非服务对象）",
+                "source": graph.source,
+            }
+        return {
+            "available": True,
+            "source": graph.source,
+            "upstream": graph.upstream_of(target),
+            "downstream": graph.downstream_of(target),
+            "ancestors": graph.ancestors(target),
+            "descendants": graph.descendants(target),
+            "path": graph.render_ascii(),
+        }
 
     # ---------- 调度 ----------
     async def _run_agents(self, ctx: DiagnosisContext) -> list[DiagnosisFragment]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -52,6 +53,11 @@ class DiagnosisReport(BaseModel):
     degraded_agents: list[str] = Field(default_factory=list)
     duration_ms: float = 0.0
     markdown: str = ""
+    # ---- 拓扑与关联收敛 ----
+    # correlation: 同源异常群（根因 + 被抑制的成员 + 判定理由 + 影响面）
+    correlation: dict[str, Any] = Field(default_factory=dict)
+    # topology: 该对象在本图里的上下游与文本拓扑
+    topology: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
 
     def confidence_with_penalty(self, missing: int, total: int) -> float:

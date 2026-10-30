@@ -36,6 +36,31 @@ def render_markdown(report: DiagnosisReport, anomaly: AnomalyEvent | None = None
 
     lines.extend(["## 根因判断", "", report.root_cause or "（未得出明确结论）", ""])
 
+    # ---- 同源影响：本次诊断代表了几条异常 ----
+    corr = report.correlation or {}
+    if corr.get("members"):
+        lines.extend(
+            [
+                "## 同源影响",
+                "",
+                f"判定依据：{corr.get('reason') or '-'}",
+                "",
+                "| 对象 | 指标 | 级别 | 处理 |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for member in corr["members"]:
+            lines.append(
+                f"| {member.get('target', '-')} | {member.get('metric', '-')} | "
+                f"{member.get('severity', '-')} | 同源受影响，已抑制独立告警 |"
+            )
+        lines.append("")
+        lines.append(
+            f"> 本轮共检出 {len(corr['members']) + 1} 条异常，已收敛为 1 个根因；"
+            f"{len(corr['members'])} 条同源告警未重复通知，避免告警风暴。"
+        )
+        lines.append("")
+
     if report.degraded_agents:
         lines.extend(
             [
@@ -70,6 +95,22 @@ def render_markdown(report: DiagnosisReport, anomaly: AnomalyEvent | None = None
             steps = "；".join(hit.resolution[:3]) or "-"
             lines.append(f"- **{hit.title}**（相似度 {hit.score:.2f}）根因：{hit.root_cause}；处置：{steps}")
         lines.append("")
+
+    # ---- 服务拓扑：说明它在调用链里的位置 ----
+    topo = report.topology or {}
+    if topo.get("available"):
+        lines.extend(["## 服务拓扑", "", f"来源：{topo.get('source', '-')}", ""])
+        if topo.get("path"):
+            lines.extend(["```", topo["path"], "```", ""])
+        upstream = topo.get("upstream") or []
+        downstream = topo.get("downstream") or []
+        lines.append(f"- 直接上游（谁调它）：{'、'.join(upstream) or '无（入口服务）'}")
+        lines.append(f"- 直接下游（它调谁）：{'、'.join(downstream) or '无（末端服务）'}")
+        if topo.get("descendants"):
+            lines.append(f"- 全链路可达下游：{'、'.join(topo['descendants'])}")
+        lines.append("")
+    elif topo.get("note"):
+        lines.extend(["## 服务拓扑", "", f"- {topo['note']}", ""])
 
     lines.extend(["## 处置建议", ""])
     if report.suggestion:

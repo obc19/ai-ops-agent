@@ -33,6 +33,8 @@ class DiagnosisContext:
     k8s_events: list[K8sEvent] = field(default_factory=list)
     rag_hits: list[RAGHit] = field(default_factory=list)
     store: Any = None
+    # 该对象在服务依赖图中的位置（orchestrator 预取），供因果推断使用
+    topology: dict = field(default_factory=dict)
 
     @property
     def target(self) -> str:
