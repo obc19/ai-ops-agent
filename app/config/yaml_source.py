@@ -58,6 +58,13 @@ _SECTION_ALIASES: dict[tuple[str, str], str] = {
     ("rules", "clusters"): "clusters_config",
     ("agent", "timeout"): "agent_timeout",
     ("agent", "diagnosis_budget"): "diagnosis_budget",
+    ("server", "enabled"): "server_enabled",
+    ("server", "proc_root"): "server_proc_root",
+    ("server", "disk_paths"): "server_disk_paths",
+    ("server", "sample_interval_ms"): "server_sample_interval_ms",
+    ("probe", "enabled"): "probe_enabled",
+    ("probe", "config"): "probe_config",
+    ("probe", "timeout"): "probe_timeout",
 }
 
 

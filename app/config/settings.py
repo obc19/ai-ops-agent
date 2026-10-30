@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # ---- 运行模式 ----
     app_name: str = "ai-ops-agent"
-    version: str = "0.4.0"
+    version: str = "0.5.0"
     mock_mode: bool = True
     host: str = "0.0.0.0"
     port: int = 8080
@@ -73,6 +73,20 @@ class Settings(BaseSettings):
     # ---- 可选模块 ----
     enable_trace_agent: bool = False
     enable_k8s_adapter: bool = False
+
+    # ---- 服务器本体状态（本地直读 /proc，零外部依赖）----
+    server_enabled: bool = True
+    # 容器内看宿主机：把宿主机 /proc 挂到 /host/proc，再把这里改成 /host/proc
+    server_proc_root: str = "/proc"
+    # 磁盘使用率要看的路径，逗号分隔；容器内指容器自身，要看宿主机需挂载宿主目录
+    server_disk_paths: str = "/"
+    # 两次 CPU 采样的间隔（毫秒），用于算瞬时使用率
+    server_sample_interval_ms: int = Field(default=300, ge=50, le=5000)
+
+    # ---- 主动拨测（platform 自己去访问目标，回答「用户访问慢在哪一段」）----
+    probe_enabled: bool = True
+    probe_config: str = ""          # 留空则自动找 <配置目录>/probes.yaml
+    probe_timeout: float = Field(default=5.0, gt=0)
 
     # ---- LLM ----
     llm_base_url: str = "https://api.deepseek.com/v1"

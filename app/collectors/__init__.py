@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from app.collectors.base import BaseCollector
 from app.collectors.elasticsearch_adapter import ElasticsearchCollector
+from app.collectors.host_adapter import HostCollector
 from app.collectors.jaeger_adapter import JaegerCollector
 from app.collectors.k8s_adapter import K8sCollector
+from app.collectors.probe_adapter import ProbeCollector
 from app.collectors.prometheus_adapter import PrometheusCollector
 from app.config.settings import Settings, get_settings
 from app.models.events import BaseEvent, DataSourceHealth
@@ -14,6 +16,9 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _REGISTRY: dict[str, type[BaseCollector]] = {
+    # 服务器本体与拨测排在最前：它们不依赖外部系统，是「一定有信号」的两层
+    "host": HostCollector,
+    "probe": ProbeCollector,
     "prometheus": PrometheusCollector,
     "elasticsearch": ElasticsearchCollector,
     "jaeger": JaegerCollector,

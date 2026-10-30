@@ -36,6 +36,26 @@ sources:
   kubernetes_token_file: ""
   tls_verify: true           # 数据源用自签证书时置 false（仅限可信内网）
 
+# ---- 服务器本体状态（本地直读 /proc，零外部依赖）----
+# 这一层回答「机器本身怎么样」：负载、CPU、IO 等待、内存、磁盘、fd、连接数、僵尸进程。
+# 它不依赖 Prometheus / cAdvisor，装上就有真实信号。
+server:
+  enabled: true
+  # 看宿主机而不是容器自身：把宿主机 /proc 挂进来，例如
+  #   docker run -v /proc:/host/proc:ro -e SERVER_PROC_ROOT=/host/proc ...
+  proc_root: /proc
+  # 磁盘使用率要看的路径，逗号分隔。容器内要统计宿主机磁盘需挂载宿主目录，
+  # 例如 -v /:/host/root:ro 后这里写 /host/root
+  disk_paths: "/"
+  sample_interval_ms: 300      # 两次 CPU 采样间隔，用于算瞬时使用率
+
+# ---- 主动拨测（平台自己去访问目标）----
+# 要监控的 URL 列表在 probes.yaml（同目录），这里只控制开关与超时。
+probe:
+  enabled: true
+  config: ""                   # 留空 = 自动使用同目录 probes.yaml
+  timeout: 5
+
 # ---- 多集群 ----
 clusters:
   # 集群清单路径在下面 rules.clusters 配置；留空时若本目录存在 clusters.yaml 会自动加载。
