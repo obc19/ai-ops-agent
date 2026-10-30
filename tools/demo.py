@@ -212,12 +212,20 @@ def run(verbose: bool = False) -> int:
         results.check("服务启动", True, client.get("/healthz").json()["version"])
 
         # ---- 验收 1：数据源可接入可查询 ----
+        # 只校验「已配置」的源可达；未配置的源（如 Windows 上没有 /proc、没接 Prometheus）
+        # 属于环境不适用，不应判为失败，但要在结论里写明跳过了哪些
         overview = client.get("/api/v1/overview").json()
         sources = overview["sources"]
+        configured = [s for s in sources if s["configured"]]
+        unreachable = [s["name"] for s in configured if not s["reachable"]]
+        skipped = [s["name"] for s in sources if not s["configured"]]
+        detail = f"已配置 {len(configured)} 个，不可达 {unreachable or '无'}"
+        if skipped:
+            detail += f"；不适用 {'/'.join(skipped)}"
         results.check(
             "1 数据源可接入可查询",
-            bool(sources) and all(s["reachable"] for s in sources),
-            f"{[(s['name'], s['reachable']) for s in sources]}",
+            not unreachable,
+            detail,
         )
 
         # ---- 验收 2：模拟故障 60s 内诊断 + 分级告警 ----

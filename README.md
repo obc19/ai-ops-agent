@@ -10,7 +10,7 @@
 </p>
 
 - 仓库：<https://github.com/obc19/ai-ops-agent>　｜　协议：[MIT](LICENSE)
-- 镜像：`ghcr.io/obc19/ai-ops-agent:0.4.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
+- 镜像：`ghcr.io/obc19/ai-ops-agent:0.5.0`（公开，支持 linux/amd64 与 linux/arm64，压缩后约 54MB）
 - 完整使用手册：[docs/USAGE.md](docs/USAGE.md)
 
 ---
@@ -19,7 +19,14 @@
 
 线上故障发生时，值班同学要在指标、日志、链路、集群事件之间来回跳，凭经验拼出根因，再写成告警。这套动作重复、耗时、且严重依赖个人经验。
 
-ai-ops-agent 把它自动化：**只读采集 → 异常检测 → 多 Agent 定位根因 → 分级告警 → 人工确认后沉淀经验**。它本身不采集数据、不替代任何监控组件，而是站在 Prometheus / Elasticsearch / Jaeger / Kubernetes 之上做判断与归纳。
+ai-ops-agent 把它自动化：**监测服务器状态 → 异常检测 → 多 Agent 定位根因 → 给出可执行修复方案 → 分级告警 → 人工确认后沉淀经验**。
+
+它自带两类「一定有信号」的数据源，不依赖任何外部监控组件：
+
+- **服务器本体**：直读 `/proc`，采集负载、CPU、IO 等待、内存、Swap、磁盘、fd、连接数、僵尸进程
+- **主动拨测**：自己定时访问你配置的 URL，把一次访问拆成 DNS / 建立连接 / TLS / 首字节 / 总耗时五段
+
+其余数据源（Prometheus / Elasticsearch / Jaeger / Kubernetes）只读外接，未配置的自动跳过。
 
 默认 **mock 模式**，不接任何外部系统就能跑通全链路，方便先看效果再落地。
 
@@ -36,9 +43,11 @@ ai-ops-agent 把它自动化：**只读采集 → 异常检测 → 多 Agent 定
 
 **接入与检测**
 
+- **服务器本体**：直读 `/proc`，零外部依赖，覆盖负载、CPU、IO 等待、内存、Swap、磁盘、fd、连接数、僵尸进程
+- **主动拨测**：自己访问目标 URL，分五段计时（DNS / 建连 / TLS / TTFB / 总耗时），直接回答「慢在哪一段」
 - 数据源全外接：Prometheus / ELK(Elasticsearch) / Jaeger / Kubernetes 只读接入，未配置的源自动跳过
 - 多集群：一份 YAML 描述多个集群，事件与告警天然带集群维度
-- 四级检测：静态阈值、环比激增、3σ 滑动基线、日志关键词与正则（规则在 `app/detection/rules.yaml`）
+- 四级检测：静态阈值、环比激增、3σ 滑动基线、日志关键词与正则（规则在 `config/rules-detection.yaml`）
 
 **诊断**
 
@@ -140,13 +149,20 @@ docker compose --env-file ../.env up -d --build   # .env 在仓库根目录，�
 
 ```bash
 docker run -d --name ai-ops-agent -p 8080:8080 \
-  -e MOCK_MODE=true \
   -e LLM_API_KEY=sk-xxxxxxxx \
   -e LLM_BASE_URL=https://api.deepseek.com/v1 \
   -e LLM_MODEL=deepseek-chat \
   -v $(pwd)/data:/data \
+  -v $(pwd)/config:/etc/aiops:ro \
+  -v /proc:/host/proc:ro \
+  -e SERVER_PROC_ROOT=/host/proc \
   ghcr.io/obc19/ai-ops-agent:latest
 ```
+
+> **`-v /proc:/host/proc:ro` 是「监测服务器状态」的关键。**
+> 不挂它，平台只能看到容器自己的负载与内存，节点真实状态是看不到的。
+> 想同时看节点磁盘，再加 `-v /:/host/root:ro -e SERVER_DISK_PATHS=/host/root`。
+> Docker Desktop（Windows / macOS）里 `/proc` 属于虚拟机，不是你的宿主系统，此时这项指标意义有限。
 
 ### 3. Kubernetes
 
@@ -204,9 +220,10 @@ docker run -v $(pwd)/config:/etc/aiops:ro ... ghcr.io/obc19/ai-ops-agent:latest
 
 ```
 config/
-├── aiops.yaml              # 主配置：运行模式 / 数据源 / 模型 / 告警 / 鉴权 / 超时
-├── rules-detection.yaml    # 检测规则：阈值、环比、3σ 基线、日志正则
+├── aiops.yaml              # 主配置：运行模式 / 数据源 / 服务器 / 模型 / 告警 / 鉴权 / 超时
+├── rules-detection.yaml    # 检测规则：阈值、环比、3σ 基线、日志正则（含服务器层与拨测层）
 ├── rules-desensitize.yaml  # 脱敏规则：IP、Token、账号、主机名
+├── probes.yaml             # 主动拨测目标：要监控的 URL 列表
 └── clusters.example.yaml   # 多集群模板，复制为 clusters.yaml 才生效
 ```
 
@@ -218,7 +235,10 @@ config/
 | --- | --- |
 | `LLM_API_KEY` | 建议环境变量（密钥不进文件），模型名/地址在 `llm:` |
 | 数据源地址 | `sources:` 段 |
+| 宿主机 `/proc` 路径、磁盘路径 | `server:` 段 |
+| 要拨测的 URL | `probes.yaml` 的 `targets:` |
 | 检测周期、告警冷却 | `detection:` 段 |
+| 检测阈值（含服务器层） | `rules-detection.yaml` |
 | 告警渠道 Webhook | `alerting:` 段 |
 | 三角色 Token | `auth:` 段或环境变量 |
 
@@ -226,6 +246,10 @@ config/
 | --- | --- | --- |
 | `MOCK_MODE` | `true` | 用内置 mock 数据源，无需外部依赖 |
 | `PORT` / `DATA_DIR` | `8080` / `./data` | 服务端口与数据目录（SQLite、向量库、审计） |
+| `SERVER_ENABLED` | `true` | 服务器本体采集开关 |
+| `SERVER_PROC_ROOT` | `/proc` | 读哪个 `/proc`；容器内看宿主机填 `/host/proc` |
+| `SERVER_DISK_PATHS` | `/` | 磁盘使用率路径，逗号分隔 |
+| `PROBE_ENABLED` / `PROBE_CONFIG` | `true` / 空 | 拨测开关与目标文件路径 |
 | `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过 |
 | `ENABLE_TRACE_AGENT` / `ENABLE_K8S_ADAPTER` | `false` | 链路 / K8s 适配器开关 |
 | `LLM_API_KEY` | 空 | **必填**。不填则退化为规则模式（无 AI 推理） |
@@ -293,7 +317,9 @@ tests/                      # pytest
 
 ## 已知边界
 
-- **诊断不自动处置**：只给结论与建议，重启、扩缩容等写操作需人工执行
+- **诊断不自动处置**：只给结论与可执行步骤，重启、扩缩容等写操作由管理员执行
+- **服务器监测依赖 `/proc`**：Linux 才有；容器需挂载宿主机 `/proc`，Docker Desktop 下只能看到虚拟机
+- **看不到客户端侧**：拨测覆盖 DNS / 建连 / TLS / 首字节，但前端渲染、CDN 命中、真实用户分布不在范围内
 - **单副本运行**：进程内调度 + SQLite 单写，多副本会重复检测、重复告警、分裂知识库
 - **Agent 为单轮推理**：规则与 LLM 双路径，尚未做多轮工具调用与自主规划
 - **模型密钥需自带**：镜像不含任何密钥，未配置时降级为规则模式（横幅与 `/healthz` 会明示）

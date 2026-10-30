@@ -1,6 +1,6 @@
 # ai-ops-agent 使用文档
 
-> 适用版本：**v0.4.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
+> 适用版本：**v0.5.0**　｜　协议：MIT　｜　仓库：<https://github.com/obc19/ai-ops-agent>
 
 本文覆盖从零安装到日常使用的全部环节：项目能做什么、需要什么环境、怎么装、怎么配、怎么用、出问题怎么查。只想先跑起来看效果，直接跳到 [3.1 用 Docker Compose 启动](#31-用-docker-compose-启动推荐) 或 [3.4 用源码启动](#34-用源码启动本地开发)。
 
@@ -102,7 +102,7 @@ K8s events ┘                                                    ▼
 | Jaeger | 链路查询 | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
 | Kubernetes apiserver | 集群事件 | K8s 内运行可自动发现；否则 `KUBERNETES_API_URL` |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
-| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.9](#49-告警渠道) |
+| 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.10](#410-告警渠道) |
 
 > **不配 LLM 会发生什么（必须知道）**：Agent 全部走内置规则，结论是「命中固定条件 → 套模板」，没有推理；报告置信度天然偏低，末尾标注 `LLM 参与：否`。
 > 此时链路仍然完整可跑，告警照发，但它已经不是 AI 分析了。系统会通过三种方式提醒你：
@@ -425,7 +425,75 @@ detection: {interval: 5, alert_cooldown: 600}
 | `DETECT_INTERVAL` | `10` | 轮询检测周期（秒），决定故障发现延迟 |
 | `RETENTION_DAYS` | `30` | 告警 / 诊断 / 审计的保留天数（经验不自动清理） |
 
-### 4.6 数据源（单集群）
+### 4.6 服务器本体与主动拨测
+
+这两个是平台**自带**的信号源，不依赖任何外部监控组件。
+
+**服务器本体**（`server:` 段）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `SERVER_ENABLED` | `true` | 采集开关 |
+| `SERVER_PROC_ROOT` | `/proc` | 读哪个 `/proc`。容器内看宿主机填 `/host/proc` |
+| `SERVER_DISK_PATHS` | `/` | 磁盘使用率路径，多个用逗号分隔 |
+| `SERVER_SAMPLE_INTERVAL_MS` | `300` | 两次 CPU 采样间隔，用于算瞬时使用率 |
+
+全部指标来自 `/proc`，**只读、不执行任何命令**：
+
+| 指标 | 含义 | 默认阈值 |
+| --- | --- | --- |
+| `host_load_per_core` | 每核负载 | ≥2 警告 / ≥4 严重 |
+| `host_cpu_usage_percent` | CPU 使用率 | ≥85 / ≥95 |
+| `host_cpu_iowait_percent` | IO 等待占比 | ≥20 |
+| `host_memory_used_percent` | 内存使用率 | ≥90 |
+| `host_swap_used_percent` | Swap 使用率 | ≥30 |
+| `host_disk_used_percent` | 磁盘使用率 | ≥85 / ≥95 |
+| `host_fd_used_percent` | 文件描述符使用率 | ≥80 / ≥90 |
+| `host_tcp_established` | 已建立连接数 | 环比 +200% |
+| `host_process_count` | 进程数 | — |
+| `host_zombie_processes` | 僵尸进程数 | ≥10 |
+
+容器里要看宿主机（而不是容器自身）：
+
+```bash
+docker run -v /proc:/host/proc:ro -v /:/host/root:ro \
+  -e SERVER_PROC_ROOT=/host/proc -e SERVER_DISK_PATHS=/host/root \
+  ghcr.io/obc19/ai-ops-agent:latest
+```
+
+K8s 清单已内置 `hostPath: /proc` 只读挂载，无需额外配置。
+
+> **两种看不到节点的情况**：一是没挂 `/proc`，此时只监测容器自身，`GET /api/v1/host` 会返回
+> `available:false` 并在原因里写明；二是在 Docker Desktop（Windows / macOS）里跑，
+> `/proc` 属于虚拟机，不是你的宿主系统。
+
+**主动拨测**（`probes.yaml`）
+
+```yaml
+targets:
+  - name: web-prod
+    url: https://www.example.com/
+    expect_status: 200
+```
+
+平台按检测周期访问这些 URL，并把一次访问拆成五段，用来回答「用户说慢，慢在哪」：
+
+| 指标 | 含义 | 指向的问题 |
+| --- | --- | --- |
+| `probe_dns_ms` | DNS 解析 | 解析链路 / 内网 DNS |
+| `probe_connect_ms` | TCP 建连 | 网络链路 / 防火墙 |
+| `probe_tls_ms` | TLS 握手 | 证书 / 加密协商 |
+| `probe_ttfb_ms` | 首字节时间 | **服务端处理** |
+| `probe_total_ms` | 端到端总耗时 | 用户感知 |
+| `probe_ok` | 状态码是否符合预期 | 可用性 |
+
+默认阈值：总耗时 ≥1500ms 警告 / ≥3000ms 严重，TTFB ≥800ms，DNS ≥200ms，建连 ≥300ms，
+`probe_ok=0` 直接 P0。
+
+两个实现细节值得知道：首次请求会**预热后丢弃**（否则冷启动开销会把建连耗时虚高 300ms 并误报）；
+请求失败时**只报 `probe_ok` 一条**，不再叠加 total / ttfb 分段告警。
+
+### 4.7 数据源（单集群）
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -440,7 +508,7 @@ detection: {interval: 5, alert_cooldown: 600}
 | `ENABLE_TRACE_AGENT` | `false` | 链路 Agent 开关 |
 | `ENABLE_K8S_ADAPTER` | `false` | K8s 事件适配器开关 |
 
-### 4.7 多集群
+### 4.8 多集群
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -465,7 +533,7 @@ clusters:
 
 未配置的数据源自动跳过；`GET /api/v1/clusters/sources` 可查看实际生效的集群与数据源。
 
-### 4.8 模型与知识库
+### 4.9 模型与知识库
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -479,7 +547,7 @@ clusters:
 | `KNOWLEDGE_DEDUP_THRESHOLD` | `0.92` | 经验去重相似度阈值（同对象才判重） |
 | `RAG_MIN_SCORE` | `0.15` | 经验命中最低分；接真实 embedding 后可调高 |
 
-### 4.9 告警渠道
+### 4.10 告警渠道
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -497,7 +565,7 @@ clusters:
 
 > mock 模式下所有通知打到内置接收端 `/_mock/sink`，方便本地验收，不会真的发到群里。
 
-### 4.10 鉴权
+### 4.11 鉴权
 
 | 变量 | 角色 | 权限 |
 | --- | --- | --- |
@@ -510,7 +578,7 @@ clusters:
 - 传递方式：`Authorization: Bearer <token>` 或 `X-Auth-Token: <token>`。
 - 控制台右上角有输入框，填 Token 后保存即可（存在浏览器本地）。
 
-### 4.11 Agent 超时与检测规则
+### 4.12 Agent 超时与检测规则
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -755,6 +823,61 @@ curl -s "http://127.0.0.1:8080/api/v1/audit?action=llm_egress_blocked&limit=10"
 > 把 `LLM_BASE_URL` 指向它即可，代码无需改动——这与"本地模型"是同一件事，只是不再作为独立配置项存在。
 
 ---
+
+### 6.9 排查「一台 web 服务器访问变慢」
+
+这是最典型的场景：运维收到反馈说站点慢，但服务端指标看着还行。完整流程如下。
+
+**第一步：让平台能看见这台机器**
+
+```bash
+docker run -d -p 8080:8080 \
+  -v /proc:/host/proc:ro \
+  -v /:/host/root:ro \
+  -e SERVER_PROC_ROOT=/host/proc \
+  -e SERVER_DISK_PATHS=/host/root \
+  -v $(pwd)/config:/etc/aiops:ro \
+  -e LLM_API_KEY=sk-xxxxxxxx \
+  ghcr.io/obc19/ai-ops-agent:latest
+```
+
+**第二步：把站点加进拨测**
+
+编辑 `config/probes.yaml`：
+
+```yaml
+targets:
+  - name: web-prod
+    url: https://www.example.com/
+    expect_status: 200
+```
+
+**第三步：看控制台首屏**
+
+「服务器状态」卡片给出节点负载 / IO 等待 / 内存 / fd / 连接数；
+「拨测」卡片给出每个目标的五段耗时。慢的那一刻，直接看哪一段数值最大：
+
+| 观察到的现象 | 说明什么 |
+| --- | --- |
+| `probe_ttfb_ms` 大，其余正常 | 服务端处理慢，不是网络问题 |
+| `probe_dns_ms` 大 | 解析慢，查 `/etc/resolv.conf` 与内网 DNS |
+| `probe_connect_ms` 大 | 建连慢，查网络链路 / 防火墙 / SYN 队列 |
+| `probe_tls_ms` 大 | 加密协商慢，查证书链与算法套件 |
+| 全部很小但 `probe_ok=0` | 服务出错，不是慢 |
+| `host_cpu_iowait_percent` 高 | 磁盘是瓶颈，`iostat -x` 接着看 |
+
+**第四步：读诊断报告里的处置步骤**
+
+告警生成后，报告末尾的「处置建议」是可直接执行的动作，例如磁盘写满时给的是：
+
+```
+1. df -h 定位是哪个分区写满，du -sh /* | sort -h 找大目录
+2. 检查日志是否未切割：journalctl --vacuum-size=500M，清理旧日志与压缩包
+3. 清理 core dump、临时文件、无用镜像（docker system prune）
+4. 长期措施：扩容磁盘、配置日志轮转与容量告警阈值
+```
+
+平台只到这里为止——**执行由你来做**。这是刻意的：只读采集 + 建议，不碰任何写操作。
 
 ## 7. 数据、备份与运维
 
