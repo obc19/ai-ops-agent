@@ -14,6 +14,20 @@ BOTTLENECK_HINTS = {
     "memory_usage_percent": "内存资源瓶颈",
     "http_latency_p99_ms": "响应延迟异常",
     "http_error_rate_percent": "错误率异常",
+    "host_load_per_core": "CPU 排队，处理能力饱和",
+    "host_cpu_usage_percent": "CPU 使用率饱和",
+    "host_cpu_iowait_percent": "磁盘 IO 瓶颈",
+    "host_memory_used_percent": "内存即将耗尽",
+    "host_swap_used_percent": "内存不足已开始换页",
+    "host_disk_used_percent": "磁盘空间不足",
+    "host_fd_used_percent": "文件描述符接近耗尽",
+    "host_zombie_processes": "僵尸进程堆积",
+    "host_tcp_established": "连接数异常增长",
+    "probe_total_ms": "端到端访问变慢",
+    "probe_ttfb_ms": "服务端处理慢",
+    "probe_dns_ms": "DNS 解析慢",
+    "probe_connect_ms": "网络建连慢",
+    "probe_ok": "目标不可用",
 }
 
 

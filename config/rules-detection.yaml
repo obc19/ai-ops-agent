@@ -33,11 +33,134 @@ thresholds:
     value: 5
     severity: P0
 
+  # ---- 服务器本体（host_*）----
+  # 单看 load 没意义，看「每个核的排队长度」：>1 已跑满，>2 明显排队
+  - id: host-load-per-core-high
+    name: 每核负载过高（CPU 排队）
+    metric: host_load_per_core
+    operator: ">="
+    value: 2
+    severity: P1
+  - id: host-load-per-core-critical
+    name: 每核负载严重超限
+    metric: host_load_per_core
+    operator: ">="
+    value: 4
+    severity: P0
+  - id: host-cpu-high
+    name: 服务器 CPU 使用率过高
+    metric: host_cpu_usage_percent
+    operator: ">="
+    value: 85
+    severity: P1
+  - id: host-cpu-critical
+    name: 服务器 CPU 使用率严重超限
+    metric: host_cpu_usage_percent
+    operator: ">="
+    value: 95
+    severity: P0
+  - id: host-iowait-high
+    name: IO 等待过高（磁盘成瓶颈）
+    metric: host_cpu_iowait_percent
+    operator: ">="
+    value: 20
+    severity: P1
+  - id: host-mem-high
+    name: 服务器内存使用率过高
+    metric: host_memory_used_percent
+    operator: ">="
+    value: 90
+    severity: P1
+  - id: host-swap-in-use
+    name: 已开始使用 Swap（内存不足）
+    metric: host_swap_used_percent
+    operator: ">="
+    value: 30
+    severity: P2
+  - id: host-disk-high
+    name: 磁盘空间不足
+    metric: host_disk_used_percent
+    operator: ">="
+    value: 85
+    severity: P1
+  - id: host-disk-critical
+    name: 磁盘空间严重不足
+    metric: host_disk_used_percent
+    operator: ">="
+    value: 95
+    severity: P0
+  - id: host-fd-high
+    name: 文件描述符接近耗尽
+    metric: host_fd_used_percent
+    operator: ">="
+    value: 80
+    severity: P1
+  - id: host-fd-critical
+    name: 文件描述符即将耗尽
+    metric: host_fd_used_percent
+    operator: ">="
+    value: 90
+    severity: P0
+  - id: host-zombie
+    name: 存在僵尸进程
+    metric: host_zombie_processes
+    operator: ">="
+    value: 10
+    severity: P2
+
+  # ---- 主动拨测（probe_*）：用户视角的「慢」----
+  - id: probe-total-slow
+    name: 端到端访问变慢
+    metric: probe_total_ms
+    operator: ">="
+    value: 1500
+    severity: P1
+  - id: probe-total-critical
+    name: 端到端访问严重变慢
+    metric: probe_total_ms
+    operator: ">="
+    value: 3000
+    severity: P0
+  - id: probe-ttfb-slow
+    name: 服务端首字节慢
+    metric: probe_ttfb_ms
+    operator: ">="
+    value: 800
+    severity: P1
+  - id: probe-dns-slow
+    name: DNS 解析慢
+    metric: probe_dns_ms
+    operator: ">="
+    value: 200
+    severity: P2
+  - id: probe-connect-slow
+    name: 建立连接慢（网络链路）
+    metric: probe_connect_ms
+    operator: ">="
+    value: 300
+    severity: P2
+  - id: probe-unavailable
+    name: 拨测失败（服务不可用）
+    metric: probe_ok
+    operator: "=="
+    value: 0
+    severity: P0
+
 percent_change:
   - id: cpu-surge
     name: CPU 环比激增
     metric: cpu_usage_percent
     percent: 80
+    severity: P2
+  - id: host-load-surge
+    name: 服务器负载环比激增
+    metric: host_load1
+    percent: 100
+    severity: P2
+  - id: host-conn-surge
+    name: 服务器连接数环比激增
+    metric: host_tcp_established
+    percent: 200
     severity: P2
 
 baseline:
@@ -46,6 +169,15 @@ baseline:
   # 只用前 60% 的样本建立基线，避免故障段污染
   train_ratio: 0.6
   severity: P2
+  # 下面这些指标天然波动或单调增长，用 3σ 判异只会制造噪音，排除掉
+  exclude_metrics:
+    - host_disk_used_percent     # 磁盘只会慢慢涨，不是异常
+    - host_cpu_cores             # 常量
+    - host_process_count         # 随业务波动
+    - host_tcp_established       # 随业务波动
+    - host_zombie_processes      # 平时为 0，有值即由阈值规则覆盖
+    - host_swap_used_percent     # 平时为 0
+    - probe_ok                   # 0/1 离散值
 
 log_rules:
   - id: log-cpu-throttle

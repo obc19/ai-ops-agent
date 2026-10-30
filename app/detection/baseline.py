@@ -16,9 +16,13 @@ def detect_baseline(
     min_samples = int(config.get("min_samples", 6))
     train_ratio = float(config.get("train_ratio", 0.6))
     severity = Severity(config.get("severity", "P2"))
+    # 天然波动或单调增长的指标（磁盘占用、进程数、连接数）用 3σ 判异只会造噪音
+    exclude = {str(item) for item in (config.get("exclude_metrics") or [])}
 
     anomalies: list[AnomalyEvent] = []
     for event in events:
+        if event.metric in exclude:
+            continue
         values = [s.value for s in event.samples]
         if len(values) < min_samples:
             continue
