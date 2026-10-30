@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.models.diagnosis import DiagnosisFragment, RAGHit
+from app.models.diagnosis import DiagnosisFragment, EvidenceItem, RAGHit
 from app.models.enums import AgentKind
 from app.models.events import (
     AnomalyEvent,
@@ -35,6 +35,8 @@ class DiagnosisContext:
     store: Any = None
     # 该对象在服务依赖图中的位置（orchestrator 预取），供因果推断使用
     topology: dict = field(default_factory=dict)
+    # 取证工作流自动采集到的证据（Pod 状态、崩溃前日志、最近发布…）
+    evidence: list[EvidenceItem] = field(default_factory=list)
 
     @property
     def target(self) -> str:

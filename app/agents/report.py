@@ -70,6 +70,29 @@ def render_markdown(report: DiagnosisReport, anomaly: AnomalyEvent | None = None
             ]
         )
 
+    # ---- 自动取证：工作流抓到的现场事实 ----
+    if report.evidence:
+        lines.extend(
+            [
+                "## 自动取证",
+                "",
+                f"按工作流自动采集（只读，未做任何变更），共 {len(report.evidence)} 步：",
+                "",
+                "| 步骤 | 采集器 | 结果 | 耗时 |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for item in report.evidence:
+            result = item.summary if item.ok else f"失败：{item.error}"
+            lines.append(
+                f"| {item.step} | `{item.provider}` | {result or '-'} | {item.elapsed_ms:.0f}ms |"
+            )
+        lines.append("")
+        for item in report.evidence:
+            preview = (item.detail or {}).get("preview")
+            if item.ok and preview:
+                lines.extend([f"**{item.step}** 日志片段：", "", "```", str(preview), "```", ""])
+
     lines.extend(["## 各维度分析", "", "| 维度 | 置信度 | 结论 | 状态 |", "| --- | --- | --- | --- |"])
     for fragment in report.fragments:
         state = "降级" if fragment.degraded else "正常"

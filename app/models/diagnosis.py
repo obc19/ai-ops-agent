@@ -36,6 +36,19 @@ class RAGHit(BaseModel):
     resolution: list[str] = Field(default_factory=list)
 
 
+class EvidenceItem(BaseModel):
+    """取证工作流的一步产出：只读取数，结果作为诊断依据。"""
+
+    workflow: str = ""
+    step: str = ""
+    provider: str = ""
+    ok: bool = True
+    summary: str = ""
+    detail: dict[str, Any] = Field(default_factory=dict)
+    error: str = ""
+    elapsed_ms: float = 0.0
+
+
 class DiagnosisReport(BaseModel):
     id: str = Field(default_factory=lambda: new_id("diag"))
     anomaly_id: str = ""
@@ -58,6 +71,8 @@ class DiagnosisReport(BaseModel):
     correlation: dict[str, Any] = Field(default_factory=dict)
     # topology: 该对象在本图里的上下游与文本拓扑
     topology: dict[str, Any] = Field(default_factory=dict)
+    # evidence: 取证工作流自动采集到的证据（Pod 状态、崩溃前日志、最近发布等）
+    evidence: list[EvidenceItem] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 
     def confidence_with_penalty(self, missing: int, total: int) -> float:

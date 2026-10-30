@@ -69,6 +69,10 @@ _SECTION_ALIASES: dict[tuple[str, str], str] = {
     ("topology", "refresh_seconds"): "topology_refresh_seconds",
     ("topology", "dependencies"): "topology_dependencies",
     ("topology", "escalate_by_impact"): "topology_escalate_by_impact",
+    ("workflows", "enabled"): "workflow_enabled",
+    ("workflows", "config"): "workflow_config",
+    ("workflows", "timeout"): "workflow_timeout",
+    ("workflows", "step_timeout"): "workflow_step_timeout",
 }
 
 

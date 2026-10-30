@@ -487,6 +487,11 @@ class RootCauseAgent(BaseAgent):
         if log_hints:
             evidence.append(f"日志维度佐证：{log_hints[0]}")
 
+        # 取证工作流的产出是最硬的一手依据（Pod 状态、崩溃前日志、最近发布），排在日志之后
+        from app.workflows import summarize_evidence
+
+        evidence.extend(summarize_evidence(getattr(ctx, "evidence", []) or []))
+
         if ctx.rag_hits:
             top = ctx.rag_hits[0]
             evidence.append(
@@ -586,6 +591,13 @@ class RootCauseAgent(BaseAgent):
         rag_block = RAGService.build_prompt_block(ctx.rag_hits)
         if rag_block:
             lines.append(rag_block)
+
+        from app.workflows import summarize_evidence
+
+        evidence_lines = summarize_evidence(getattr(ctx, "evidence", []) or [])
+        if evidence_lines:
+            lines.append("自动取证（平台只读采集到的现场事实，优先采信）：")
+            lines.extend(f"- {item}" for item in evidence_lines)
         return "\n".join(lines)
 
     @staticmethod

@@ -76,6 +76,15 @@ topology:
   #   api-gateway: [order-service]
   #   order-service: [payment-service, user-service]
 
+# ---- 取证工作流（发现问题后自动补充现场证据，严格只读）----
+# 定义在 workflows.yaml（本目录），trigger → steps → 证据写进诊断报告。
+# 只取证、不执行修复动作：平台不碰生产。
+workflows:
+  enabled: true
+  config: ""                   # 留空自动使用本目录的 workflows.yaml
+  timeout: 12                  # 单次诊断的总取证预算（秒）
+  step_timeout: 6              # 单步超时（秒）
+
 # ---- 多集群 ----
 clusters:
   # 集群清单路径在下面 rules.clusters 配置；留空时若本目录存在 clusters.yaml 会自动加载。

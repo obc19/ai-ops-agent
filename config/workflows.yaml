@@ -1,0 +1,75 @@
+# 取证工作流：发现问题后自动补充「现场事实」，喂给诊断与 LLM。
+#
+#   triggers  什么时候跑
+#   steps     跑哪些只读采集（provider + with 参数）
+#
+# 与 keephq/keep 的 workflow 相比，这里**故意没有 actions**：
+# 本平台只读，不执行任何修复动作，工作流的唯一产出是证据。
+#
+# 模板变量：{{ anomaly.cluster }} {{ anomaly.namespace }} {{ anomaly.target }}
+#           {{ anomaly.metric }} {{ anomaly.severity }} {{ anomaly.rule_id }}
+#           {{ steps.<步骤名>.<字段> }}（引用前面步骤的结果）
+#
+# 可用 provider：k8s.pod / k8s.logs / k8s.rollout / http.get
+# 护栏：单次诊断最多 3 个工作流、每个最多 8 步、单步 6s、总预算 12s（见 aiops.yaml 的 workflows 段）
+
+workflows:
+  # ---- 容器起不来 / 反复重启：看状态、看崩溃前日志、看最近发布 ----
+  - id: k8s-crash-evidence
+    name: 容器崩溃取证
+    description: CrashLoopBackOff、OOMKilled、镜像拉取失败、反复重启时，一次性把现场拉齐
+    triggers:
+      - rules: ["k8s-crashloop", "k8s-oomkilled", "k8s-config-error", "k8s-image-pull"]
+        source: ["k8s"]
+      - rules: ["k8s_pod_restarts", "k8s_pod_ready"]
+        source: ["metric"]
+    steps:
+      - name: pod-detail
+        provider: k8s.pod
+        with:
+          namespace: "{{ anomaly.namespace }}"
+          name: "{{ anomaly.target }}"
+      # previous=true 取上一个容器实例的日志——崩溃现场在「上一次」而不是当前
+      - name: crash-logs
+        provider: k8s.logs
+        with:
+          namespace: "{{ anomaly.namespace }}"
+          pod: "{{ anomaly.target }}"
+          tail_lines: 80
+          previous: true
+      - name: recent-release
+        provider: k8s.rollout
+        with:
+          namespace: "{{ anomaly.namespace }}"
+          target: "{{ anomaly.target }}"
+
+  # ---- 副本掉了 / 服务能力下降：先判断是不是刚发版 ----
+  - id: k8s-workload-evidence
+    name: 工作负载降级取证
+    description: 副本缺口时，查这个 Deployment 最近一次发布时间与镜像版本
+    triggers:
+      - rules: ["k8s_deployment_ready_gap"]
+      - rules: ["k8s-unschedulable"]
+        source: ["k8s"]
+    steps:
+      - name: recent-release
+        provider: k8s.rollout
+        with:
+          namespace: "{{ anomaly.namespace }}"
+          workload: "{{ anomaly.target }}"
+
+  # ---- 示例：外部依赖健康页（默认关闭，按需打开）----
+  # 用途：日志规则报「上游超时」时，顺手确认依赖方自己的健康接口是不是也挂了。
+  - id: dependency-health
+    name: 上游依赖自查（示例，默认关闭）
+    enabled: false
+    triggers:
+      - rules: ["log-timeout", "log-conn"]
+    steps:
+      - name: upstream-health
+        provider: http.get
+        with:
+          url: "https://example.internal/healthz"
+          timeout: 3
+        # 这一步失败不阻断后续步骤（本工作流只有一步，写出来是为了说明语义）
+        continue_on_error: true

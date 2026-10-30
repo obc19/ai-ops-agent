@@ -28,6 +28,7 @@ from app.models.events import (
     TimeWindow,
     TraceEvent,
 )
+from app.workflows import collect_evidence
 from app.storage import get_store
 from app.utils.clock import utc_now
 from app.utils.logging import get_logger
@@ -59,7 +60,10 @@ class Orchestrator:
         logger.info("编排开始：%s", anomaly.display())
         self.db.save_anomaly(anomaly)
 
-        events = await collect_all(window)
+        # 取证与采集并行：工作流只依赖异常本身，不依赖采集结果，串行会白等一轮
+        events, evidence = await asyncio.gather(
+            collect_all(window), collect_evidence(anomaly)
+        )
         # 先取拓扑：根因 Agent 需要用上下游关系做因果推断（谁带垮了谁）
         topology_info = await self._topology_info(anomaly.target)
         ctx = DiagnosisContext(
@@ -71,6 +75,7 @@ class Orchestrator:
             k8s_events=[e for e in events if isinstance(e, K8sEvent)],
             store=self.db,
             topology=topology_info,
+            evidence=evidence,
         )
         ctx.rag_hits = await self.rag.retrieve(self._rag_query(anomaly))
 
@@ -103,6 +108,7 @@ class Orchestrator:
             degraded_agents=degraded,
             correlation=correlation.to_public() if correlation is not None else {},
             topology=topology_info,
+            evidence=evidence,
             created_at=started,
         )
         if len(active) < 3:
@@ -122,6 +128,8 @@ class Orchestrator:
                 "rag_hits": len(ctx.rag_hits),
                 "correlated_suppressed": len(correlation.members) if correlation else 0,
                 "topology_source": topology_info.get("source", ""),
+                "evidence_steps": len(evidence),
+                "evidence_ok": sum(1 for item in evidence if item.ok),
             },
             target=anomaly.target,
         )

@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     detection_rules: str = ""       # 默认 rules-detection.yaml
     desensitize_rules: str = ""     # 默认 rules-desensitize.yaml
 
+    # ---- 取证工作流（发现问题后自动补充证据，严格只读）----
+    workflow_enabled: bool = True
+    workflow_config: str = ""       # 默认 workflows.yaml
+    workflow_timeout: float = Field(default=12.0, gt=0)   # 单次取证总预算（秒）
+    workflow_step_timeout: float = Field(default=6.0, gt=0)  # 单个步骤超时
+
     # ---- 可选模块 ----
     enable_trace_agent: bool = False
     enable_k8s_adapter: bool = False
@@ -250,6 +256,10 @@ class Settings(BaseSettings):
     @property
     def detection_rules_path(self) -> Path:
         return self._resolve_rules(self.detection_rules, "rules-detection.yaml")
+
+    @property
+    def workflow_path(self) -> Path:
+        return self._resolve_rules(self.workflow_config, "workflows.yaml")
 
     @property
     def clusters_file(self) -> Path | None:
