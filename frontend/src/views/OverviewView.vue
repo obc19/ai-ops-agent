@@ -4,6 +4,7 @@ import { api, fmtTime } from '../api'
 
 const data = ref<any>(null)
 const host = ref<any>(null)
+const cluster = ref<any>(null)
 const topology = ref<any>(null)
 const recent = ref<any[]>([])
 const loading = ref(true)
@@ -12,8 +13,9 @@ async function load() {
   loading.value = true
   try {
     data.value = await api.overview()
-    // 服务器状态 / 拓扑接口失败不应拖垮整页
+    // 服务器状态 / 集群状态 / 拓扑接口失败不应拖垮整页
     host.value = await api.host().catch(() => null)
+    cluster.value = await api.cluster().catch(() => null)
     topology.value = await api.topology().catch(() => null)
     const alerts = await api.alerts({ limit: 8 })
     recent.value = alerts.items || []
@@ -138,6 +140,61 @@ onMounted(load)
         style="font-size: 12px; margin-top: 8px"
       >
         {{ p.name }}：{{ p.error }}
+      </div>
+    </div>
+
+    <div v-if="cluster && cluster.available" class="card">
+      <h2>
+        K8s 集群状态
+        <span class="muted" style="font-size: 12px; font-weight: 400; margin-left: 8px">
+          {{ cluster.in_cluster ? '集群内 · ServiceAccount 直连' : '集群外 · API 地址' }}
+          · metrics-server {{ cluster.metrics_server ? '可用（含 CPU/内存用量）' : '未安装（事件与状态不受影响）' }}
+        </span>
+      </h2>
+      <div class="grid" v-if="cluster.nodes.length">
+        <div v-for="n in cluster.nodes" :key="n.name" class="stat compact">
+          <div class="label">{{ n.name }}</div>
+          <div class="value" :class="{ alarm: !n.ready }">
+            {{ n.ready ? 'Ready' : 'NotReady' }}
+          </div>
+          <div v-if="n.issues.length" class="muted" style="font-size: 11px">
+            {{ n.issues.join(' / ') }}
+          </div>
+        </div>
+      </div>
+      <table v-if="cluster.workloads.length" style="margin-top: 12px">
+        <thead>
+          <tr><th>工作负载</th><th>就绪 / 期望</th><th>缺口</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="w in cluster.workloads" :key="w.namespace + w.name">
+            <td class="mono">{{ w.namespace }}/{{ w.name }}</td>
+            <td class="mono">{{ w.ready }} / {{ w.desired }}</td>
+            <td><span class="tag p1">缺 {{ w.gap }}</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <table v-if="cluster.pod_issues.length" style="margin-top: 12px">
+        <thead>
+          <tr><th>异常 Pod</th><th>重启</th><th>原因</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="p in cluster.pod_issues" :key="p.namespace + p.name">
+            <td class="mono">{{ p.namespace }}/{{ p.name }}</td>
+            <td class="mono">{{ p.restarts || '-' }}</td>
+            <td>
+              <span v-for="r in p.reasons" :key="r" class="tag p0">{{ r }}</span>
+              <span v-if="p.not_ready" class="tag p1">未就绪</span>
+              <span v-if="!p.reasons.length && !p.not_ready" class="muted">-</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div
+        v-if="!cluster.nodes.length && !cluster.workloads.length && !cluster.pod_issues.length"
+        class="empty"
+      >
+        集群当前无异常对象
       </div>
     </div>
 

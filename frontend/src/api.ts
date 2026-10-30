@@ -38,6 +38,7 @@ export const api = {
   llmStatus: () => request<any>('/api/v1/system/llm'),
   llmTest: () => request<any>('/api/v1/system/llm-test', { method: 'POST' }),
   host: () => request<any>('/api/v1/host'),
+  cluster: () => request<any>('/api/v1/cluster'),
   topology: (refresh = false) =>
     request<any>('/api/v1/topology' + (refresh ? '?refresh=true' : ''))
 }

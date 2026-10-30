@@ -97,10 +97,11 @@ K8s events ┘                                                    ▼
 | 依赖 | 用途 | 相关变量 |
 | --- | --- | --- |
 | **外部 LLM**（DeepSeek 等 OpenAI 兼容接口） | **诊断 / 根因 / 报告撰写，必配** | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` |
-| Prometheus | 指标查询（每轮 4 个 PromQL） | `PROMETHEUS_URL` |
-| Elasticsearch（ELK） | 日志检索（5 条日志规则） | `ELASTICSEARCH_URL` / `ELASTICSEARCH_INDEX` |
-| Jaeger | 链路查询 | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
-| Kubernetes apiserver | 集群事件 | K8s 内运行可自动发现；否则 `KUBERNETES_API_URL` |
+| Prometheus | 指标查询（每轮 4 个 PromQL），**可选** | `PROMETHEUS_URL` |
+| Elasticsearch（ELK） | 日志检索（4 条日志规则），**可选** | `ELASTICSEARCH_URL` / `ELASTICSEARCH_INDEX` |
+| Jaeger | 链路查询，**可选** | `JAEGER_URL` + `ENABLE_TRACE_AGENT=true` |
+| Kubernetes apiserver | Pod/节点/副本/事件（**裸集群的主信号**） | K8s 内运行零配置自动启用；集群外配 `KUBERNETES_API_URL` / `KUBERNETES_TOKEN` |
+| metrics-server | 仅补 Pod/Node 的 CPU、内存用量，**可选** | 集群侧组件，装了自动识别 |
 | Embedding 接口 | 经验向量化 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` |
 | 飞书 / 钉钉 / SMTP / Webhook | 告警送达 | `FEISHU_WEBHOOK` 等，见 [4.11](#411-告警渠道) |
 
@@ -569,9 +570,30 @@ api-gateway
 | `JAEGER_URL` | 空 | Jaeger 查询地址 |
 | `KUBERNETES_API_URL` / `KUBERNETES_TOKEN` | 空 | apiserver 地址与 Bearer Token；集群内运行可留空自动发现 |
 | `KUBERNETES_CA_FILE` / `KUBERNETES_TOKEN_FILE` | 空 | 自定义 SA 挂载路径，留空用默认 `/var/run/secrets/kubernetes.io/serviceaccount/` |
+| `KUBERNETES_NAMESPACES` | 空 | 只采这些命名空间的 Pod/Deployment，逗号分隔；留空=全部 |
 | `TLS_VERIFY` | `true` | 数据源为自签证书时设 `false`，仅限可信内网 |
 | `ENABLE_TRACE_AGENT` | `false` | 链路 Agent 开关 |
-| `ENABLE_K8S_ADAPTER` | `false` | K8s 事件适配器开关 |
+| `ENABLE_K8S_ADAPTER` | `false` | K8s 采集开关；**集群内检测到 ServiceAccount、或配了 `KUBERNETES_API_URL` 时自动启用**，通常无需设置 |
+
+#### 只有裸 K8s 集群（没有 Prometheus / ELK）时的实际能力
+
+不需要额外装任何东西，`/api/v1/cluster` 与控制台「K8s 集群状态」卡片即可给出：
+
+| 能看到 | 数据来源 | 典型故障 |
+| --- | --- | --- |
+| Pod 重启次数、容器失败原因 | `/api/v1/pods` 的 `containerStatuses[].state/lastState` | CrashLoopBackOff、OOMKilled、ImagePullBackOff、缺 ConfigMap |
+| Pod 未就绪 / Pending 原因 | `status.conditions[PodScheduled]` | 资源不足、亲和性不满足、PVC 未绑定 |
+| 节点 Ready / 内存压力 / 磁盘压力 | `/api/v1/nodes` 的 `conditions` | 节点失联、节点开始驱逐 Pod |
+| 期望副本 vs 就绪副本 | `/apis/apps/v1/deployments` | 发布卡住、扩容不生效、服务能力下降 |
+| Warning 事件与次数 | `/api/v1/events?fieldSelector=type!=Normal` | FailedScheduling、Evicted、Unhealthy |
+| Pod/Node CPU、内存用量 | `metrics.k8s.io`（**需 metrics-server**） | 贴着 limit 跑、OOM 前兆 |
+
+装 metrics-server 的那一行是唯一需要额外组件的；`kubectl top` 能用就说明它已经在跑。
+没装时适配器会**静默降级并在健康页标注**，不会用 0 或空图冒充「正常」。
+
+对应的检测规则在 `config/rules-detection.yaml` 的 `thresholds`（`k8s_*` 指标）与
+`k8s_events`（按 reason 白名单，含 `hint` 字段用于给管理员提示排查方向）两段，可直接改阈值/加 reason，无需改代码。
+
 
 ### 4.9 多集群
 

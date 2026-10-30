@@ -2,6 +2,46 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+回答一个问题：**只有一个 K8s 集群，没上 Prometheus 也没上 ELK，这套东西还能监控吗？**
+原来的答案是「能跑但基本瞎」——K8s 适配器只拉了事件，而检测引擎**根本不消费 K8s 事件**，
+开了开关也是 0 条告警。这一版把裸集群做成一等公民。
+
+### 新增
+
+- **K8s 事件检测规则**（`app/detection/k8s_rules.py` + `rules-detection.yaml` 的 `k8s_events` 段）
+  - 按 `reason` 白名单匹配：CrashLoopBackOff / OOMKilled / ImagePullBackOff / CreateContainerConfigError /
+    FailedScheduling / Evicted / Unhealthy / NodeNotReady 等 10 组，各带 `hint` 给出排查方向
+  - 同对象同规则在窗口内合并计数（`value` = 真实发生次数），`min_count` 控制触发门槛
+  - 这是「事实型」信号，不走阈值：OOMKilled 发生了就是发生了
+- **K8s 采集器重写**（`app/collectors/k8s_adapter.py`），只读四类资源：
+  - `pods`：重启次数、Ready 状态、容器 `state.waiting` / `lastState.terminated` 的失败原因、
+    Pending 的调度原因；**跳过 `deletionTimestamp` 的 Pod**，避免滚动更新误报
+  - `nodes`：Ready / MemoryPressure / DiskPressure / PIDPressure
+  - `deployments`：期望副本 vs 就绪副本的缺口
+  - `metrics.k8s.io`（**可选**）：Pod/Node 的 CPU、内存用量占 limit/allocatable 的比例；
+    没装 metrics-server 时 404/503 **静默降级并只记一次日志**，不影响其他四类
+  - 单资源 403 不再中断整轮采集（RBAC 通常逐资源授权）
+  - 新增 `KUBERNETES_NAMESPACES` 限定采集范围，留空=全部
+- **集群内零配置启用**：检测到 ServiceAccount token 或显式配置了 `KUBERNETES_API_URL` 就自动开启，
+  `ENABLE_K8S_ADAPTER` 只用于「强制打开」；采集结果带 15s 快照缓存，避免一轮检测重复 list pods
+- **`GET /api/v1/cluster`** 与控制台「K8s 集群状态」卡片：节点就绪/压力、副本缺口、异常 Pod 及原因，
+  并明确标注 `metrics-server 可用 / 未安装`，不用 0 或空图冒充正常
+- 根因规则补 14 条 K8s 映射（事件类按规则 id、指标类按指标名），模板支持 `{value}` 占位
+
+### 修复
+
+- **K8s 事件采到了却从不检测**：`DetectionEngine.detect()` 只分流 Metric 与 Log，
+  `K8sEvent` 被直接丢弃；开启 `ENABLE_K8S_ADAPTER` 后实际产生 0 条异常
+- mock 世界的 `k8s_events(window)` 在窗口为 `None`（控制台接口调用）时抛 `AttributeError`
+
+### 文档
+
+- README 新增「无 Prometheus / 无 ELK 模式」：逐信号列出「来源 / 需要装什么 / 缺了会失去什么」
+- 明确一点：Pod 起不来、节点不可用、副本掉了这些**K8s API 自己就能回答**，
+  反而 ELK 拿不到（容器已死，日志没落盘）
+
 ## [0.6.0] - 2026-10-30
 
 补上「从有数据到能定位」之间缺的那一层：**服务依赖拓扑与根因收敛**。

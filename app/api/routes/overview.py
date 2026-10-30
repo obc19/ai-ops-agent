@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import require_auth
 from app.collectors import collectors_health
+from app.collectors.k8s_adapter import in_cluster as k8s_in_cluster
 from app.config.clusters import load_clusters
 from app.config.settings import get_settings
 from app.knowledge.experience import get_knowledge_service
@@ -41,7 +42,9 @@ async def overview(actor: str = Depends(require_auth)) -> dict:
             "llm_model": settings.llm_model,
             "embedding_enabled": settings.embedding_enabled,
             "trace_agent": settings.enable_trace_agent,
-            "k8s_adapter": settings.enable_k8s_adapter,
+            # 集群内跑时适配器自动启用，这里回报「实际是否在工作」而不是原始开关
+            "k8s_adapter": settings.enable_k8s_adapter or k8s_in_cluster(),
+            "k8s_in_cluster": k8s_in_cluster(),
             "knowledge_backend": settings.knowledge_backend,
             "detect_interval": settings.detect_interval,
             "auth_enabled": settings.auth_enabled,

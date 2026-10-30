@@ -21,12 +21,18 @@
 
 ai-ops-agent 把它自动化：**监测服务器状态 → 异常检测 → 多 Agent 定位根因 → 给出可执行修复方案 → 分级告警 → 人工确认后沉淀经验**。
 
-它自带两类「一定有信号」的数据源，不依赖任何外部监控组件：
+它自带三类「一定有信号」的数据源，不依赖任何外部监控组件：
 
 - **服务器本体**：直读 `/proc`，采集负载、CPU、IO 等待、内存、Swap、磁盘、fd、连接数、僵尸进程
 - **主动拨测**：自己定时访问你配置的 URL，把一次访问拆成 DNS / 建立连接 / TLS / 首字节 / 总耗时五段
+- **K8s 原生**：直读集群 API，采集 Pod 重启 / 未就绪 / 容器失败原因、节点 Ready 与资源压力、Deployment 副本缺口、Warning 事件
 
-其余数据源（Prometheus / Elasticsearch / Jaeger / Kubernetes）只读外接，未配置的自动跳过。
+其余数据源（Prometheus / Elasticsearch / Jaeger）只读外接，未配置的自动跳过。
+
+> **没有 Prometheus、也没有 ELK 能用吗？** 能。上面三类都是零依赖的，
+> K8s 那一路只需要一个 ServiceAccount（RBAC 清单已给），装不装 metrics-server 都能工作——
+> 装了多一条 CPU/内存用量曲线，没装就退化成「事件 + 重启次数 + 就绪状态 + 副本缺口」，
+> 控制台会明确标注当前处于哪一档。详见 [无 Prometheus / 无 ELK 模式](#无-prometheus--无-elk-模式)。
 
 默认 **mock 模式**，不接任何外部系统就能跑通全链路，方便先看效果再落地。
 
@@ -45,7 +51,10 @@ ai-ops-agent 把它自动化：**监测服务器状态 → 异常检测 → 多 
 
 - **服务器本体**：直读 `/proc`，零外部依赖，覆盖负载、CPU、IO 等待、内存、Swap、磁盘、fd、连接数、僵尸进程
 - **主动拨测**：自己访问目标 URL，分五段计时（DNS / 建连 / TLS / TTFB / 总耗时），直接回答「慢在哪一段」
-- 数据源全外接：Prometheus / ELK(Elasticsearch) / Jaeger / Kubernetes 只读接入，未配置的源自动跳过
+- **K8s 原生信号**：只读集群 API 拿 Pod 重启次数、容器失败原因（CrashLoopBackOff / OOMKilled / ImagePullBackOff）、
+  节点 Ready 与 MemoryPressure/DiskPressure、Deployment 副本缺口、Warning 事件；集群内运行零配置自动启用，
+  metrics-server 存在时自动补 CPU/内存用量，不存在则静默降级
+- 其余数据源只读外接：Prometheus / Elasticsearch / Jaeger，未配置的源自动跳过
 - 多集群：一份 YAML 描述多个集群，事件与告警天然带集群维度
 - 四级检测：静态阈值、环比激增、3σ 滑动基线、日志关键词与正则（规则在 `config/rules-detection.yaml`）
 
@@ -89,7 +98,7 @@ Prometheus   Elasticsearch   Jaeger   Kubernetes
                           │
                 采集适配器（插件式，无状态）
                           │  标准化事件 Metric / Log / Trace / K8s
-                异常检测（阈值 / 环比 / 3σ / 日志规则）
+                异常检测（阈值 / 环比 / 3σ / 日志规则 / K8s 事件规则）
                           │
           编排中枢 Orchestrator（12s per Agent，45s 预算）
         ┌─────────────┬─────────────┬─────────────┐
@@ -108,6 +117,51 @@ Prometheus   Elasticsearch   Jaeger   Kubernetes
 ```
 
 单个实例即可覆盖整个集群：采集是只读拉取，一次查询天然是全局视角，无需在每台机器上部署。
+
+---
+
+## 无 Prometheus / 无 ELK 模式
+
+很多集群只有 K8s 本身，没上监控栈。下面这张表说明**每一层信号从哪来、缺了会失去什么**，
+这样你能判断哪些故障还能被定位、哪些会瞎。
+
+| 信号 | 来源 | 需要装什么 | 失去它意味着 |
+| --- | --- | --- | --- |
+| 服务器负载 / CPU / 内存 / 磁盘 / fd / 连接数 / 僵尸进程 | 直读 `/proc` | 无 | — |
+| 用户视角的慢（DNS / 建连 / TLS / TTFB） | 平台自己发起 HTTP 拨测 | 无（填 `config/probes.yaml`） | 无法区分「服务慢」和「网络慢」 |
+| Pod 重启次数、容器失败原因、Ready 状态 | `GET /api/v1/pods` | 无 | 无法判断 CrashLoop / OOM 循环 |
+| 节点 Ready、MemoryPressure / DiskPressure | `GET /api/v1/nodes` | 无 | 无法判断故障在节点还是业务 |
+| Deployment 期望副本 vs 就绪副本 | `GET /apis/apps/v1/deployments` | 无 | 无法判断「服务能力掉了多少」 |
+| Warning 事件（FailedScheduling / Evicted / Unhealthy） | `GET /api/v1/events` | 无 | 少一块最直接的现场描述 |
+| Pod / Node 的 CPU、内存用量 | `metrics.k8s.io` | **metrics-server**（K8s 标准附加组件，`kubectl top` 依赖它） | 只能定性「在重启」，说不出「快撞 limit 了」 |
+| 业务指标（QPS / 延迟 / 错误率）、JVM / 中间件指标 | Prometheus 或任何兼容查询的端点 | Prometheus（或 VictoriaMetrics 等） | 无法从业务视角发现「没报错但变慢了」 |
+| 应用日志与日志规则 | Elasticsearch / OpenSearch | ELK / EFK | 4 类日志规则（超时 / OOM / 5xx / 磁盘）全部失效 |
+| 服务调用拓扑 | Jaeger 或 `topology.dependencies` 手工声明 | Jaeger（可选手工兜底） | 多服务同时异常时无法收敛成单一根因 |
+
+**关键点：故障定位的主干并不依赖监控栈。** Pod 为什么起不来、节点为什么不可用、
+副本为什么掉了 —— 这些 K8s API 自己就能回答，Prometheus 和 ELK 反而拿不到
+（ELK 看不到 `OOMKilled`，因为容器已经死了，日志还没落盘）。
+
+开启方式（集群内零配置）：
+
+```bash
+# 部署到 K8s 里时，适配器检测到 ServiceAccount 会自动启用，无需改配置
+kubectl apply -f deploy/k8s/00-namespace-rbac.yaml   # 只读 RBAC，无任何写权限
+# 想限定只看某些命名空间：
+#   config/aiops.yaml → sources.kubernetes_namespaces: "prod,web"
+```
+
+集群外运行则显式配置：
+
+```bash
+export KUBERNETES_API_URL=https://k8s.example.com:6443
+export KUBERNETES_TOKEN=<只读 ServiceAccount 的 token>
+export ENABLE_K8S_ADAPTER=true
+```
+
+控制台「K8s 集群状态」卡片会直接标出当前档位：
+`metrics-server 可用（含 CPU/内存用量）` 或 `未安装（事件与状态不受影响）`，
+不会用 0 或者空图冒充「一切正常」。同一份数据也在 `GET /api/v1/cluster`。
 
 ---
 
@@ -253,8 +307,11 @@ config/
 | `SERVER_PROC_ROOT` | `/proc` | 读哪个 `/proc`；容器内看宿主机填 `/host/proc` |
 | `SERVER_DISK_PATHS` | `/` | 磁盘使用率路径，逗号分隔 |
 | `PROBE_ENABLED` / `PROBE_CONFIG` | `true` / 空 | 拨测开关与目标文件路径 |
-| `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过 |
-| `ENABLE_TRACE_AGENT` / `ENABLE_K8S_ADAPTER` | `false` | 链路 / K8s 适配器开关 |
+| `PROMETHEUS_URL` / `ELASTICSEARCH_URL` / `JAEGER_URL` | 空 | 数据源地址，留空则该适配器跳过（**都不是必需**） |
+| `ENABLE_K8S_ADAPTER` | `false` | K8s 采集开关；集群内检测到 ServiceAccount、或配了 `KUBERNETES_API_URL` 时**自动启用**，无需设置 |
+| `KUBERNETES_API_URL` / `KUBERNETES_TOKEN` | 空 | 集群外运行时的 API 地址与只读 token |
+| `KUBERNETES_NAMESPACES` | 空 | 只看这些命名空间的 Pod/Deployment，逗号分隔；留空=全部 |
+| `ENABLE_TRACE_AGENT` | `false` | 链路 Agent 开关（需要 Jaeger 或手工拓扑） |
 | `LLM_API_KEY` | 空 | **必填**。不填则退化为规则模式（无 AI 推理） |
 | `LLM_BASE_URL` / `LLM_MODEL` | DeepSeek | 任意 OpenAI 兼容服务 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 空 | 经验向量化，留空用哈希向量兜底 |
@@ -279,8 +336,8 @@ app/                        # 运行时程序，不含任何配置值
 ├── main.py                 #   FastAPI 入口（API + 静态控制台 + 健康检查）
 ├── config/                 #   Pydantic 配置、YAML 配置源、常量、多集群加载
 ├── models/                 #   事件 / 诊断 / 告警 / 经验 / 集群模型
-├── collectors/             #   采集适配器（Prometheus / ES / Jaeger / K8s）
-├── detection/              #   异常检测（阈值 / 基线 / 日志规则）
+├── collectors/             #   采集适配器（Prometheus / ES / Jaeger / K8s / 服务器 / 拨测）
+├── detection/              #   异常检测（阈值 / 基线 / 日志规则 / K8s 事件规则）
 ├── gateway/                #   数据安全网关（脱敏 + 分流路由 + 审计）
 ├── agents/                 #   四类 Agent + 编排中枢 + 报告渲染
 ├── alerting/               #   告警策略 / 聚合升级 / 多渠道通知
