@@ -64,6 +64,10 @@ a { color: var(--brand); text-decoration: none; }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
 .stat .label { font-size: 12px; color: var(--muted); }
 .stat .value { font-size: 24px; font-weight: 600; margin-top: 6px; }
+.stat.compact { padding: 11px 14px; }
+.stat.compact .value { font-size: 18px; font-weight: 500; margin-top: 4px; }
+.stat .value.alarm { color: var(--p0); }
+.stat .value .unit { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 2px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }

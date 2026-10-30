@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api, fmtTime } from '../api'
 
 const data = ref<any>(null)
+const host = ref<any>(null)
 const recent = ref<any[]>([])
 const loading = ref(true)
 
@@ -10,11 +11,24 @@ async function load() {
   loading.value = true
   try {
     data.value = await api.overview()
+    // 服务器状态接口失败不应拖垮整页
+    host.value = await api.host().catch(() => null)
     const alerts = await api.alerts({ limit: 8 })
     recent.value = alerts.items || []
   } finally {
     loading.value = false
   }
+}
+
+function fmtValue(item: any): string {
+  const v = item.value
+  if (v === null || v === undefined) return '-'
+  if (item.unit === '个') return String(Math.round(v))
+  return Number(v).toFixed(Number(v) >= 100 ? 0 : 1)
+}
+
+function ms(v: number | null): string {
+  return v === null || v === undefined ? '-' : `${v}ms`
 }
 
 onMounted(load)
@@ -52,6 +66,57 @@ onMounted(load)
         <span class="tag p0">P0 · {{ data.severity_count.P0 || 0 }}</span>
         <span class="tag p1">P1 · {{ data.severity_count.P1 || 0 }}</span>
         <span class="tag p2">P2 · {{ data.severity_count.P2 || 0 }}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>
+        服务器状态
+        <span v-if="host?.host" class="muted" style="font-size: 12px; font-weight: 400; margin-left: 8px">
+          {{ host.host }}
+        </span>
+      </h2>
+      <div v-if="!host" class="empty">未获取到主机数据</div>
+      <div v-else-if="!host.available" class="empty">{{ host.reason }}</div>
+      <div v-else class="grid">
+        <div v-for="item in host.items" :key="item.metric" class="stat compact">
+          <div class="label">{{ item.label }}</div>
+          <div class="value" :class="{ alarm: item.warn }">
+            {{ fmtValue(item) }}<span v-if="item.unit && item.unit !== '个'" class="unit">{{ item.unit }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="host?.probes?.length" class="card">
+      <h2>拨测 · 用户视角</h2>
+      <table>
+        <thead>
+          <tr><th>目标</th><th>状态</th><th>总耗时</th><th>DNS</th><th>建连</th><th>TTFB</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="p in host.probes" :key="p.name">
+            <td>
+              {{ p.name }}
+              <div class="muted mono" style="font-size: 11px">{{ p.url }}</div>
+            </td>
+            <td>
+              <span :class="p.ok ? 'tag ok' : 'tag p0'">{{ p.ok ? '正常' : '失败' }}</span>
+            </td>
+            <td class="mono">{{ ms(p.total_ms) }}</td>
+            <td class="mono">{{ ms(p.dns_ms) }}</td>
+            <td class="mono">{{ ms(p.connect_ms) }}</td>
+            <td class="mono">{{ ms(p.ttfb_ms) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div
+        v-for="p in host.probes.filter((x: any) => x.error)"
+        :key="p.name + '-err'"
+        class="muted"
+        style="font-size: 12px; margin-top: 8px"
+      >
+        {{ p.name }}：{{ p.error }}
       </div>
     </div>
 

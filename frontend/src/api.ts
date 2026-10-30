@@ -36,7 +36,8 @@ export const api = {
   audit: (params: Record<string, any> = {}) =>
     request<any>('/api/v1/audit?' + new URLSearchParams(params as any).toString()),
   llmStatus: () => request<any>('/api/v1/system/llm'),
-  llmTest: () => request<any>('/api/v1/system/llm-test', { method: 'POST' })
+  llmTest: () => request<any>('/api/v1/system/llm-test', { method: 'POST' }),
+  host: () => request<any>('/api/v1/host')
 }
 
 export function fmtTime(value?: string): string {
