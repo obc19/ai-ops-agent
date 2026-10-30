@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: ghcr.io/obc19/ai-ops-agent:0.4.0
+          image: ghcr.io/obc19/ai-ops-agent:0.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -58,6 +58,14 @@ spec:
             # 配置目录：ConfigMap 挂到这里，aiops.yaml / rules-*.yaml / clusters.yaml 都从这里读
             - name: CONFIG_DIR
               value: /etc/aiops
+            # 服务器本体状态：读宿主机 /proc（下面用 hostPath 挂进来）
+            # 去掉这个挂载则只监测容器自身，指标仍可用但看不到节点真实负载
+            - name: SERVER_PROC_ROOT
+              value: /host/proc
+            # 容器 overlay 的磁盘占用意义有限；要看节点磁盘请接 node_exporter，
+            # 或把宿主机目录只读挂进来自行指定 SERVER_DISK_PATHS
+            - name: SERVER_DISK_PATHS
+              value: /
             # 鉴权与外部凭据从 Secret 注入（保存解压后只在内存中）
             - name: OPERATOR_TOKEN
               valueFrom:
@@ -80,6 +88,10 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /etc/aiops
+              readOnly: true
+            # 宿主机 /proc：只读，用于采集节点负载、CPU、内存、fd、连接数、进程
+            - name: host-proc
+              mountPath: /host/proc
               readOnly: true
           readinessProbe:
             httpGet:
@@ -116,6 +128,10 @@ spec:
             name: ai-ops-agent-config
             # 没建这个 ConfigMap 时仍可启动：镜像内自带 /app/config 默认配置
             optional: true
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
       terminationGracePeriodSeconds: 20
 ---
 apiVersion: v1

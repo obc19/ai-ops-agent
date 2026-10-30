@@ -48,11 +48,21 @@ services:
       EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
+      # 服务器本体状态：默认看容器自身；要看宿主机就挂 /proc 并改这两项（见下方 volumes）
+      SERVER_ENABLED: "${SERVER_ENABLED:-true}"
+      SERVER_PROC_ROOT: "${SERVER_PROC_ROOT:-/host/proc}"
+      SERVER_DISK_PATHS: "${SERVER_DISK_PATHS:-/host/root}"
+      PROBE_ENABLED: "${PROBE_ENABLED:-true}"
     volumes:
       - ./data:/data
       # 全部配置来自仓库根目录的 config/，整目录只读挂载到约定路径
       # 改完配置重启容器即可生效（进程不监听文件变更）
       - ../config:/etc/aiops:ro
+      # 服务器状态要看宿主机（而不是容器自己）时启用下面两行：
+      #   /proc      → 负载、CPU、内存、fd、连接数、进程
+      #   /          → 磁盘使用率（只读挂载根目录）
+      - /proc:/host/proc:ro
+      - /:/host/root:ro
     healthcheck:
       test:
         - CMD
